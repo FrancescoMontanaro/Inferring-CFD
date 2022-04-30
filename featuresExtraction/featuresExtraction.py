@@ -3,15 +3,16 @@ from FlowSignals import flowSignals
 from ArrivalTimes import arrivalTimes
 from RegionalAverages import regionalAverages
 from StreamlinesSignals import streamlinesSignals
-
+from RegionalArrivalTimes import regionalArrivalTimes
 
 # Input data path
 data_path = "/Volumes/T5/files" #CHANGE ME
 
 flow_signals = False
-arrival_times = False
+arrival_times = True
 regional_averages = False
-streamlines_signals = True
+streamlines_signals = False
+regional_arrival_times = False
 
 
 # Extracting the vtk files
@@ -35,7 +36,7 @@ for data_file in data_files:
 
         if arrival_times:
             # Extracting the streamlines arrival times
-            features = arrivalTimes(reader, chord)
+            features = arrivalTimes(reader)
 
         if flow_signals:
             # Extracting the signals associated to the flow quantities
@@ -44,6 +45,10 @@ for data_file in data_files:
         if streamlines_signals:
             # Extracting the signals associated to the streamlines
             features = streamlinesSignals(reader)
+
+        if regional_arrival_times:
+            # Extracting the signals associated to the streamlines
+            features = regionalArrivalTimes(reader)
 
     except Exception as e:
         # Displaying errors

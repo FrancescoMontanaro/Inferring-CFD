@@ -8,7 +8,7 @@ from vtk.util.numpy_support import vtk_to_numpy
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 sections__x_distances = np.array([-1, 1, 10]) # X coordinates of the cutting sections
-regions__y_bounds = [-500, -10, -1, -0.1, 0, 0.1 , 1, 10, 500] # Y boundaries of each region
+regions__y_bounds = [-500, -10, -1, -0.1, 0, 0.1, 1, 10, 500] # Y boundaries of each region
 
 
 """
