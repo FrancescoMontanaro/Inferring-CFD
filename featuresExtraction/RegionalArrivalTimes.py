@@ -9,8 +9,8 @@ maximum_propagation = 30 # Maximum streamlines length
 streamlines_resolution = 350 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
-sections__x_distances = [[-5, -1], [-1, 1], [1, 5]] # Boundaries of the X cutting sections
-regions__y_bounds = [-10, -3, -1.5, -0.5, 0, 0.5, 1.5, 3, 10] # Boundaries of the Y regions
+sections__x_distances = np.array([[-5.0, -1.0], [-1.0, 1.0], [1.0, 5.0]]) # Boundaries of the X cutting sections
+regions__y_bounds = np.array([-10, -3, -1.5, -0.5, 0, 0.5, 1.5, 3, 10]) # Boundaries of the Y regions
 
 
 """
@@ -67,11 +67,12 @@ def __extractStreamlines(reader):
     poly_data.GetCellData().AddArray(U_vtk)
 
     # Creating the seed
-    center = - maximum_propagation / 2
+    center_y = 0.75 * np.abs(regions__y_bounds).max()
+    center_x = 2 * np.abs(sections__x_distances.flatten()).max()
 
     seed = vtk.vtkLineSource()
-    seed.SetPoint1((center, center, 0))
-    seed.SetPoint2((center, -center, 0))
+    seed.SetPoint1((-center_x, -center_y, 0.5))
+    seed.SetPoint2((-center_x, center_y, 0.5))
     seed.SetResolution(streamlines_resolution)
 
     # Creating the Streamtracer object
@@ -97,12 +98,11 @@ def __extractStreamlines(reader):
     U = vtk_to_numpy(streamer_output.GetPointData().GetArray("Velocity"))
     U = np.delete(U, -1, axis=1)
 
-    # Normalizing the velocity components w.r.t. the free stream velocity magnitude
-    U[:,0] -= free_stream__velocity_magnitude * np.cos(free_stream__gradient)
-    U[:,1] -= free_stream__velocity_magnitude * np.sin(free_stream__gradient)
-
     # Computing the magnitude of the velocity of the points
     U = np.array([np.linalg.norm(u) for u in U])
+
+    # Normalizing the velocity w.r.t. the free stream velocity magnitude
+    U /= free_stream__velocity_magnitude
 
     # Extracting the number of streamlines
     num_streamlines = streamer_output.GetNumberOfCells()
@@ -157,48 +157,49 @@ def __extractRegionalArrivalTimes(streamlines):
                 # Filtering the indices of points belonging to the current X section
                 indices = [idx for idx in range(len(streamline["points"])) if streamline["points"][idx, 0] >= np.min(section_distance) and streamline["points"][idx, 0] < np.max(section_distance)]
 
-                # Filtering the coordinates and the velocity magnitude of the points of the streamlines belonging to the current X section
-                region_points = np.array([streamline["points"][idx] for idx in indices])
-                region__time_distances = np.array([streamline["time_distances"][idx] for idx in indices])
+                if len(indices) > 0:
+                    # Filtering the coordinates and the velocity magnitude of the points of the streamlines belonging to the current X section
+                    region_points = np.array([streamline["points"][idx] for idx in indices])
+                    region__time_distances = np.array([streamline["time_distances"][idx] for idx in indices])
 
-                # Extracting the closest point not belonging to the region of interest
-                lower_idx = indices[0] -1
-                upper_idx = indices[-1] + 1
+                    # Extracting the closest point not belonging to the region of interest
+                    lower_idx = indices[0] -1
+                    upper_idx = indices[-1] + 1
 
-                if lower_idx >= 0 and upper_idx < len(streamline["points"]):
-                    # Extracting the coordinates of the points lying on the cutting sections (linear interpolation)
-                    lower__point_on_section = [
-                        section_distance[0],
-                        region_points[0,1] + (section_distance[0] - region_points[0,0]) * (streamline["points"][lower_idx,1] - region_points[0,1]) / (streamline["points"][lower_idx,0] - region_points[0,0])
-                    ]
+                    if lower_idx >= 0 and upper_idx < len(streamline["points"]):
+                        # Extracting the coordinates of the points lying on the cutting sections (linear interpolation)
+                        lower__point_on_section = [
+                            section_distance[0],
+                            region_points[0,1] + (section_distance[0] - region_points[0,0]) * (streamline["points"][lower_idx,1] - region_points[0,1]) / (streamline["points"][lower_idx,0] - region_points[0,0])
+                        ]
 
-                    upper__point_on_section = [
-                        section_distance[1],
-                        region_points[-1,1] + (section_distance[1] - region_points[-1,0]) * (streamline["points"][upper_idx,1] - region_points[-1,1]) / (streamline["points"][upper_idx,0] - region_points[-1,0])
-                    ]
+                        upper__point_on_section = [
+                            section_distance[1],
+                            region_points[-1,1] + (section_distance[1] - region_points[-1,0]) * (streamline["points"][upper_idx,1] - region_points[-1,1]) / (streamline["points"][upper_idx,0] - region_points[-1,0])
+                        ]
 
-                    # Computing the distance between the cutting sections and the closest points belonging to it
-                    lower__section_distance = np.linalg.norm(lower__point_on_section - region_points[0])
-                    upper__section_distance = np.linalg.norm(upper__point_on_section - region_points[-1])
+                        # Computing the distance between the cutting sections and the closest points belonging to it
+                        lower__section_distance = np.linalg.norm(lower__point_on_section - region_points[0])
+                        upper__section_distance = np.linalg.norm(upper__point_on_section - region_points[-1])
 
-                    # Computing the distance between the closest points belonging to the cutting sections and the
-                    # closest points not belonging to it
-                    lower_point_distance = np.linalg.norm(streamline["points"][lower_idx] - region_points[0])
-                    upper_point_distance = np.linalg.norm(streamline["points"][upper_idx] - region_points[-1])
+                        # Computing the distance between the closest points belonging to the cutting sections and the
+                        # closest points not belonging to it
+                        lower_point_distance = np.linalg.norm(streamline["points"][lower_idx] - region_points[0])
+                        upper_point_distance = np.linalg.norm(streamline["points"][upper_idx] - region_points[-1])
 
-                    # Computing the ratio of the computed values 
-                    lower_ratio = lower__section_distance / lower_point_distance
-                    upper_ratio = upper__section_distance / upper_point_distance
+                        # Computing the ratio of the computed values 
+                        lower_ratio = lower__section_distance / lower_point_distance
+                        upper_ratio = upper__section_distance / upper_point_distance
 
-                    # Computing the time distance between the closest points to the cutting sections
-                    # and the cutting section itself
-                    lower_time_distance = region__time_distances[0] * lower_ratio
-                    upper_time_distance = streamline["time_distances"][upper_idx] * upper_ratio
+                        # Computing the time distance between the closest points to the cutting sections
+                        # and the cutting section itself
+                        lower_time_distance = region__time_distances[0] * lower_ratio
+                        upper_time_distance = streamline["time_distances"][upper_idx] * upper_ratio
 
-                    # Computing the arrival time of the current streamline
-                    arrival_time = lower_time_distance + sum(region__time_distances[1:]) + upper_time_distance
+                        # Computing the arrival time of the current streamline
+                        arrival_time = lower_time_distance + sum(region__time_distances[1:]) + upper_time_distance
 
-                    arrival_times.append(arrival_time)
+                        arrival_times.append(arrival_time)
 
             # Computing the mean of the arrival time of the streamlines belonging to the current region
             regional_arrival_time = np.mean(arrival_times)    

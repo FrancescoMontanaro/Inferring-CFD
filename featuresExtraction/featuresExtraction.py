@@ -6,12 +6,12 @@ from StreamlinesSignals import streamlinesSignals
 from RegionalArrivalTimes import regionalArrivalTimes
 
 # Input data path
-data_path = "/Volumes/T5/files" #CHANGE ME
+data_path = "/Volumes/T5/files/" #CHANGE ME
 
 flow_signals = False
-arrival_times = True
+arrival_times = False
 regional_averages = False
-streamlines_signals = False
+streamlines_signals = True
 regional_arrival_times = False
 
 

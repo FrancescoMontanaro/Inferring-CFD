@@ -1,13 +1,14 @@
 import vtk
+import utils
 import numpy as np
 import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
 
 # Global variables and constants
-bins_count = 512 # Numer of bins
-section__y_bounds = [-5, 5] # Y Boundaries of the signal
-maximum_propagation = 20 # maximum streamlines length
+bins_count = 1024 # Numer of bins
+sections_length = 10.0 # Y length of the cutting sections
+maximum_propagation = 30.0 # maximum streamlines length
 streamlines_resolution = 350 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
@@ -55,11 +56,11 @@ def __extractStreamlines(reader):
     poly_data.GetCellData().AddArray(U_vtk)
 
     # Creating the seed
-    center = - maximum_propagation / 2
+    center = maximum_propagation / 2
 
     seed = vtk.vtkLineSource()
-    seed.SetPoint1((center, center, 0))
-    seed.SetPoint2((center, -center, 0))
+    seed.SetPoint1((-center, -center, 0))
+    seed.SetPoint2((-center, center, 0))
     seed.SetResolution(streamlines_resolution)
 
     # Creating the Streamtracer object
@@ -80,6 +81,12 @@ def __extractStreamlines(reader):
     # Extracting the magnitude of the velocity of the points
     U = vtk_to_numpy(streamer_output.GetPointData().GetArray("Velocity"))
     U = np.delete(U, -1, axis=1)
+
+    # Computing the magnitude of the velocity vector
+    U = np.array([np.linalg.norm(u) for u in U])
+
+    # Normalizing the velocity w.r.t. the free stream velocity magnitude
+    U /= free_stream__velocity_magnitude
 
     # Extracting the points of the Streamtracer object and removing the last column (z coordinate)
     points = vtk_to_numpy(streamer_output.GetPoints().GetData())
@@ -108,22 +115,15 @@ def __extractStreamlines(reader):
         segments_length = np.sqrt(dx**2 + dy**2)
 
         # Extracting the length of the streamline
-        streamline_length = sum(segments_length)
+        streamline_length = np.sum(segments_length)
 
         # Computing the velocity of the edges
         U_edges = (streamline_U[1:] - streamline_U[:-1]) / 2 + streamline_U[:-1]
 
-        # Normalizing the velocity components
-        U_edges[:,0] -= free_stream__velocity_magnitude * np.cos(free_stream__gradient)
-        U_edges[:,1] -= free_stream__velocity_magnitude * np.sin(free_stream__gradient)
-        
-        # Computing the magnitude of the velocity vector
-        U_edges = np.array([np.linalg.norm(u) for u in U_edges])
-
         # Computing the mean velocity of the streamlines
         U_mean = np.dot(U_edges, segments_length) / streamline_length
 
-        streamlines.append({"U_mean": U_mean, "y_coordinate": np.min(streamline_points[:,1])})
+        streamlines.append({"U_mean": U_mean, "y_min": streamline_points[0,1]})
 
     return streamlines
 
@@ -133,68 +133,60 @@ Given the streamlines with their velocity value and the number of bins,
 performs the binning operation to generate a 1D signal.
 """
 def __extractBins(streamlines):
-    # Computing the length of the section
-    section_length = np.sqrt((np.min(section__y_bounds) - np.max(section__y_bounds))**2)
+    # Extracting the boundaries of the bins
+    bins_bounds = np.linspace(-sections_length/2, +sections_length/2, num=bins_count)
 
-    # Extracting the lower bound coordinate of the section
-    lower_bound = np.min(section__y_bounds)
+    # Creating an array of empty bins
+    bins = np.full(bins_count, None)
 
-    bins = []
     # Iterating over the total number of bins
-    for idx in range(bins_count):
-        # Computing the bounds of the i-th bin
-        bin_bounds = (lower_bound + idx * section_length / bins_count), (lower_bound + (idx+1) * section_length / bins_count)
-
+    for idx in range(len(bins_bounds) - 1):
         # Extracting the arrival times of the streamlines belonging to the i-th bin
-        bin_streamlines = [streamline for streamline in streamlines if streamline["y_coordinate"] >= bin_bounds[0] and streamline["y_coordinate"] < bin_bounds[1]]
-        # Computing the center coordinate of the i-th bin
-        center = np.mean(bin_bounds)
+        bin_streamlines = [streamline for streamline in streamlines if streamline["y_min"] >= bins_bounds[idx] and streamline["y_min"] < bins_bounds[idx+1]]
 
         # Computing the average arrival time of the streamlines belonging to the i-th bin
         bin__U_mean = float(np.mean([bin_streamline["U_mean"] for bin_streamline in bin_streamlines])) if len(bin_streamlines) > 0 else None
 
-        bins.append({"center": center, "U": bin__U_mean})
+        bins[idx] = bin__U_mean
 
     # Obtaining the values of the empty bins by interpolating the values of the adjacent ones
-    if(bins[0]["U"] is None):
-        upper_bin = None
-        i = 0
+    if(bins[0] is None):
+        i, upper_bin = 0, None
         while(upper_bin is None and i < len(bins)):
-            if(bins[i]["U"] is not None):
+            if(bins[i] is not None):
                 upper_bin = bins[i]
             i += 1
 
-        bins[0]["U"] = upper_bin["U"]
+        bins[0] = upper_bin
 
-    if(bins[-1]["U"] is None):
-        lower_bin = None
-        i = len(bins) - 1
+    if(bins[-1] is None):
+        i, lower_bin = len(bins) - 1, None
         while(lower_bin is None and i > 0):
-            if(bins[i]["U"] is not None):
+            if(bins[i] is not None):
                 lower_bin = bins[i]
             i -= 1
 
-        bins[-1]["U"] = lower_bin["U"]
+        bins[-1] = lower_bin
 
     for i in range(1, len(bins)-1):
-        if(bins[i]["U"] is None):
-            lower_bin = None
-            j = i
+        if(bins[i] is None):
+            j, lower_bin = i, None
             while(lower_bin is None and j >= 0):
-                if(bins[j]["U"] is not None):
+                if(bins[j] is not None):
                     lower_bin = bins[j]
+                    lower_weigth = 1 / i - j
                 j -= 1
 
-            upper_bin = None
-            j = i
+            j, upper_bin = i, None
             while(upper_bin is None and j < len(bins)):
-                if(bins[j]["U"] is not None ):
+                if(bins[j] is not None ):
                     upper_bin = bins[j]
+                    upper_weight = 1 / j - i
                 j += 1
 
-            bins[i]["U"] = np.mean([lower_bin["U"], upper_bin["U"]])
+            bins[i] = np.average([lower_bin, upper_bin], weights=[lower_weigth, upper_weight])
 
-    bins = {"U": [bin["U"] for bin in bins]}
+    bins = {"U": list(bins)}
 
     return bins
 

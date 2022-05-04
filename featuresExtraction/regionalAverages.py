@@ -8,7 +8,7 @@ from vtk.util.numpy_support import vtk_to_numpy
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 sections__x_distances = np.array([-1, 1, 10]) # X coordinates of the cutting sections
-regions__y_bounds = [-500, -10, -1, -0.1, 0, 0.1, 1, 10, 500] # Y boundaries of each region
+regions__y_bounds = np.array([-500, -10, -1, -0.1, 0, 0.1, 1, 10, 500]) # Y boundaries of each region
 
 
 """
@@ -78,7 +78,7 @@ def __extractRegionalAverages(poly_data, chord):
         U = np.array([np.linalg.norm(u) for u in U])
 
         # Normalizing the velocity vector w.r.t. the free stream velocity magnitude
-        U -= free_stream__velocity_magnitude
+        U /= free_stream__velocity_magnitude
 
         # Iterating over the regions of a section
         for r in range(len(regions__y_bounds) - 1):
