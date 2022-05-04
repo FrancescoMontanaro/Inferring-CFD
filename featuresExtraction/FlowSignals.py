@@ -5,7 +5,7 @@ from vtk.util.numpy_support import vtk_to_numpy
 
 
 # Global variables and constants
-bins_count = 512 # Numer of bins
+bins_count = 1024 # Numer of bins
 section__x_distance = 5 # X coordinate in which the signal is generated
 sections_length = 1000.0 # Y length of the cutting sections
 free_stream__gradient = 0.17453 # Gradient of the free stream

@@ -6,11 +6,11 @@ from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
 # Global variables and constants
 maximum_propagation = 30 # Maximum streamlines length
-streamlines_resolution = 350 # Number of streamlines
+streamlines_resolution = 400 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 sections__x_distances = np.array([[-5.0, -1.0], [-1.0, 1.0], [1.0, 5.0]]) # Boundaries of the X cutting sections
-regions__y_bounds = np.array([-10, -3, -1.5, -0.5, 0, 0.5, 1.5, 3, 10]) # Boundaries of the Y regions
+regions__y_bounds = np.array([-10, -3.5, -1.75, -0.75, 0, 0.75, 1.75, 3.5, 10]) # Boundaries of the Y regions
 
 
 """
@@ -200,6 +200,10 @@ def __extractRegionalArrivalTimes(streamlines):
                         arrival_time = lower_time_distance + sum(region__time_distances[1:]) + upper_time_distance
 
                         arrival_times.append(arrival_time)
+
+            # Raising an exception if the current region is empty
+            if len(arrival_times) == 0:
+                raise Exception(f'Empty region: X=[{section_distance[0]},{section_distance[1]}] , Y=[{regions__y_bounds[r]},{regions__y_bounds[r+1]}]')
 
             # Computing the mean of the arrival time of the streamlines belonging to the current region
             regional_arrival_time = np.mean(arrival_times)    

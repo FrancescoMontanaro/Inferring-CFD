@@ -11,8 +11,8 @@ data_path = "/Volumes/T5/files/" #CHANGE ME
 flow_signals = False
 arrival_times = False
 regional_averages = False
-streamlines_signals = True
-regional_arrival_times = False
+streamlines_signals = False
+regional_arrival_times = True
 
 
 # Extracting the vtk files
