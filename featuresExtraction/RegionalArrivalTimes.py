@@ -1,5 +1,5 @@
 import vtk
-import utils
+import Utils
 import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
@@ -67,7 +67,7 @@ def __extractStreamlines(reader):
     poly_data.GetCellData().AddArray(U_vtk)
 
     # Creating the seed
-    center_y = 0.75 * np.abs(regions__y_bounds).max()
+    center_y = np.abs(regions__y_bounds).max()
     center_x = 2 * np.abs(sections__x_distances.flatten()).max()
 
     seed = vtk.vtkLineSource()

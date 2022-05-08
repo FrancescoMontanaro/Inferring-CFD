@@ -1,5 +1,5 @@
 import vtk
-import utils
+import Utils
 import numpy as np
 import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
