@@ -127,16 +127,18 @@ def __extractBins(points):
             while(lower_bin is None and j >= 0):
                 if(bins[j]["p"] is not None and bins[j]["U"] is not None):
                     lower_bin = bins[j]
+                    lower_weight = 1 / i - j
                 j -= 1
 
             j, upper_bin = i, None
             while(upper_bin is None and j < len(bins)):
                 if(bins[j]["p"] is not None and bins[j]["U"] is not None):
                     upper_bin = bins[j]
+                    upper_weight = 1 / j - i
                 j += 1
 
-            bins[i]["p"] = float(np.mean([lower_bin["p"], upper_bin["p"]]))
-            bins[i]["U"] = float(np.mean([lower_bin["U"], upper_bin["U"]]))
+            bins[i]["p"] = np.average([lower_bin["p"], upper_bin["p"]], weights=[lower_weight, upper_weight])
+            bins[i]["U"] = np.average([lower_bin["U"], upper_bin["U"]], weights=[lower_weight, upper_weight])
 
     bins = {"p": [bin["p"] for bin in bins], "U": [bin["U"] for bin in bins]}
 

@@ -1,6 +1,7 @@
 .DS_Store
 __pycache__
 __OLD/
+__Extra/
 Dataset/
 Results/
 .ipynb_checkpoints/
