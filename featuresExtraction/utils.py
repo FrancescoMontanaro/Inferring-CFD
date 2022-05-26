@@ -78,28 +78,18 @@ def readVtk(file_path):
 """
 Given a VTK file, extracts the target values to be predicted
 """
-def targetValues(file_name, file_path):
-    # Creating the PolyDataReader object
-    reader = vtk.vtkPolyDataReader()
-    reader.SetFileName(file_path)
-    reader.Update()
-
-    # Extracting the data of the mesh
-    poly_data = reader.GetOutput()
-
+def targetValues(file_name):
     # Extracting the chord of the airfoil from its boundaries
-    #bounds = poly_data.GetBounds()
-    #chord = np.abs(bounds[1] - bounds[0])
     chord = 1.0
 
     # Saving the values of the naca numbers into a dictionary
     naca_numbers = {
-        "maximum_camber": (int(file_name[0]) / 100) * chord,
-        "maximum_camber_position": (int(file_name[1]) / 10) * chord,
-        "maximum_thickness": (int(file_name[2:]) / 100) * chord
+        "maximum_camber": int(file_name[0]) * chord,
+        "maximum_camber_position": int(file_name[1]) * chord,
+        "maximum_thickness": int(file_name[2:]) * chord
     }
 
-    return chord, naca_numbers
+    return naca_numbers
 
 
 """

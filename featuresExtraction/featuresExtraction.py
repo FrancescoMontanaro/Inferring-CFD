@@ -2,6 +2,7 @@ import Utils
 from FlowSignals import flowSignals
 from ArrivalTimes import arrivalTimes
 from RegionalAverages import regionalAverages
+from InformativePoints import informativePoints
 from StreamlinesSignals import streamlinesSignals
 from RegionalArrivalTimes import regionalArrivalTimes
 
@@ -12,14 +13,18 @@ data_path = "/Volumes/T5/files/" #CHANGE ME
 flow_signals = False
 arrival_times = False
 regional_averages = False
+informative_points = False
 streamlines_signals = False
 regional_arrival_times = False
+
+save_data = False
 
 # Extracting the vtk files
 data_files = Utils.getDataFiles(data_path)
 
 # Creating the file to store the results
-Utils.CreateResultsFile()
+if save_data:
+    Utils.CreateResultsFile()
 
 # Iterating over the vtk files
 for data_file in data_files:
@@ -28,11 +33,15 @@ for data_file in data_files:
         reader = Utils.readVtk(data_file["data_path"])
 
         # Loading the vtk file of the target shape and extracting its labels
-        chord, naca_numbers = Utils.targetValues(data_file["file_name"], data_file["target_path"])
+        naca_numbers = Utils.targetValues(data_file["file_name"])
+
+        if informative_points:
+            # Extracting the informative points of the flow fields
+            features = informativePoints(reader)
 
         if regional_averages:
             # Extracting the regional averages of the flow quantities
-            features = regionalAverages(reader, chord)
+            features = regionalAverages(reader)
 
         if arrival_times:
             # Extracting the streamlines arrival times
@@ -56,7 +65,8 @@ for data_file in data_files:
 
     else:
         # Saving the result into the destination file
-        Utils.saveResults({"features": features, "naca_numbers": naca_numbers})
+        if save_data:
+            Utils.saveResults({"features": features, "naca_numbers": naca_numbers})
 
         # Displaying progress
         print(f'{data_file["file_name"]} --> {(data_files.index(data_file) + 1)}/{len(data_files)} files processed')

@@ -5,24 +5,24 @@ from vtk.util.numpy_support import vtk_to_numpy
 
 
 # Global variables and constants
-bins_count = 1024 # Numer of bins
-section__x_distance = 5 # X coordinate in which the signal is generated
-sections_length = 1000.0 # Y length of the cutting sections
+bins_count = 2048 # Numer of bins
+sections_length = 400.0 # Y length of the cutting sections
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
+section__x_distances = np.array([-1, 2, 11]) # X coordinates in which the signal is generated
 
 
 """
 Given a VTK poly_data object cuts the mesh in the selected sections
 """
-def __extractSection(poly_data):
+def __extractSection(poly_data, section_distance):
     # Creating the cutting planes
     plane1 = vtk.vtkPlane()
-    plane1.SetOrigin(section__x_distance, 0, 0.5)
+    plane1.SetOrigin(section_distance, 0, 0.5)
     plane1.SetNormal(1, 0, 0) #Orthogonal to the x axis
 
     plane2 = vtk.vtkPlane()
-    plane2.SetOrigin(section__x_distance, 0, 0.5)
+    plane2.SetOrigin(section_distance, 0, 0.5)
     plane2.SetNormal(0, 0, 1) #Orthogonal to the z axis
 
     # Cutting the space in the first direction
@@ -68,14 +68,14 @@ def __cellsValues(target_section):
         cell = target_section.GetCell(idx)
         pts = vtk_to_numpy(cell.GetPoints().GetData())
 
-        # Computing the center of the cell
-        center = np.mean(pts[:,1])
+        # Computing the Y coordinate of the cell
+        y_coord = np.mean(pts[:,1])
 
         # Extracting the flow quantites of the i-th cell
         cell_p = p[idx]
         cell_U = U[idx]
 
-        cells.append({"center": center, "p": cell_p, "U": cell_U})
+        cells.append({"y_coord": y_coord, "p": cell_p, "U": cell_U})
 
     return cells
 
@@ -86,13 +86,13 @@ performs the binning operation to generate a 1D signal.
 """
 def __extractBins(points):
     # Extracting the boundaries of the bins
-    bins_bounds = np.linspace(-sections_length/2, +sections_length/2, num=bins_count)
+    bins_bounds = np.linspace(-sections_length/2, +sections_length/2, num=bins_count+1)
 
     bins = []
     # Iterating over the total number of bins
     for idx in range(len(bins_bounds) - 1):        
         # Extracting the points of the mesh belonging to the i-th bin
-        bin_points = [point for point in points if point["center"] >= bins_bounds[idx] and point["center"] < bins_bounds[idx+1]]
+        bin_points = [point for point in points if point["y_coord"] >= bins_bounds[idx] and point["y_coord"] < bins_bounds[idx+1]]
 
         # Computing the pressure and velocity field associated to the i-th bin
         bin_p = float(np.mean([point["p"] for point in bin_points])) if len(bin_points) > 0 else None
@@ -140,7 +140,10 @@ def __extractBins(points):
             bins[i]["p"] = np.average([lower_bin["p"], upper_bin["p"]], weights=[lower_weight, upper_weight])
             bins[i]["U"] = np.average([lower_bin["U"], upper_bin["U"]], weights=[lower_weight, upper_weight])
 
-    bins = {"p": [bin["p"] for bin in bins], "U": [bin["U"] for bin in bins]}
+    bins = {
+        "p": np.array([bin["p"] for bin in bins]), 
+        "U": np.array([bin["U"] for bin in bins]),
+    }
 
     return bins
 
@@ -153,13 +156,30 @@ def flowSignals(reader):
     # Extracting the data of the grid
     poly_data = reader.GetOutput()
 
-    # Extracting the section of interest
-    target_section = __extractSection(poly_data)
+    flow_signal = {
+        "p": np.zeros((bins_count, len(section__x_distances))),
+        "U": np.zeros((bins_count, len(section__x_distances))),
+    }
 
-    # Extracting the cells and the values of the flow quantities associated
-    cells = __cellsValues(target_section)
+    # Iterating over the X sections
+    for idx in range(len(section__x_distances)):
+        # Extracting the section of interest
+        target_section = __extractSection(poly_data, section__x_distances[idx])
 
-    # Extracting the bins and computing the values of the associated flow quantities
-    bins = __extractBins(cells)
+        # Extracting the cells and the values of the flow quantities associated
+        cells = __cellsValues(target_section)
 
-    return bins
+        # Extracting the bins and computing the values of the associated flow quantities
+        bins = __extractBins(cells)
+
+        # Appending the signal of the current section to the nd signal
+        flow_signal["p"][:,idx] = bins["p"]
+        flow_signal["U"][:,idx] = bins["U"]
+
+    Utils.displayData(flow_signal["U"])
+
+    # Converting the numpy array to lists
+    flow_signal["p"] = flow_signal["p"].tolist()
+    flow_signal["U"] = flow_signal["U"].tolist()
+
+    return flow_signal
