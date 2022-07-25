@@ -9,7 +9,7 @@ points_per_section = 5 # Number of points for each cutting section
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 U_gradient_threshold = 5e-5 # Gradient threshold of the velocity vector under which to take the inflection points
 p_gradient_threshold = 3e-2 # Gradient threshold of the pressure vector under which to take the inflection points
-section__x_distances = np.array([2]) # X coordinates in which the signals are generated
+section__x_distances = np.array([-1, 2, 11]) # X coordinates in which the signals are generated
 
 
 """
@@ -149,13 +149,8 @@ def informativePoints(reader):
         # Extracting the 5 most informational points of the flow fields
         section_target_points = __targetPoints(target_section)
 
-        target_points["p"][:, 0, idx] = section_target_points["p"][:,0]
-        target_points["p"][:, 1, idx] = section_target_points["p"][:,1]
-        target_points["U"][:, 0, idx] = section_target_points["U"][:,0]
-        target_points["U"][:, 1, idx] = section_target_points["U"][:,1]
-
-    # Converting the numpy array to lists
-    target_points["p"] = target_points["p"].tolist()
-    target_points["U"] = target_points["U"].tolist()
+        for key in target_points.keys():
+            target_points[key][:, 0, idx] = section_target_points[key][:, 0]
+            target_points[key][:, 1, idx] = section_target_points[key][:, 1]
 
     return target_points

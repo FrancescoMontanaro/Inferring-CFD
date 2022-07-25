@@ -1,7 +1,6 @@
 import os
 import vtk
-import json
-from pathlib import Path
+import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 
@@ -16,51 +15,11 @@ def getDataFiles(data_path):
     # Iterating over the folders and files of the path
     for path, _, files in os.walk(data_path):
         for file in files:
-            # Extracting the vtk files
             file_components = file.split(".")
-            if(file_components[-1] == "vtk" and "walls" not in file):
-                target_file_path = os.path.join(path, ("%s_walls.vtk" % file_components[0]))
-                if(os.path.exists(target_file_path)):
-                    data_files.append({"file_name": file_components[0], "data_path": os.path.join(path, file), "target_path": target_file_path})
+            if(file_components[-1] == "vtk" and "_walls" not in file):
+                data_files.append({"name": file_components[0], "path": os.path.join(path, file)})
 
     return data_files
-
-
-"""
-Saves the results into a json file
-"""
-def saveResults(result):
-    data = []
-    with open(results_file, 'r') as destination_file:
-        data = json.load(destination_file)
-        destination_file.close()
-
-    data.append(result)
-
-    with open(results_file, 'w') as destination_file:
-        json.dump(data, destination_file, indent=2)
-        destination_file.close()
-
-
-"""
-Creates a json file in the destination directory to save the obtained results
-"""
-def CreateResultsFile(destination_path=None, file_name=None):
-    current_datetime = datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
-    destination_path = destination_path if destination_path else "./Dataset"
-    file_name = file_name if file_name else f'dataset_{current_datetime}.json'
-
-    file_path = os.path.join(destination_path, file_name)
-
-    if(not os.path.exists(destination_path)):
-        Path(destination_path).mkdir(parents=True)
-
-    with open(file_path, 'w') as destination_file:
-        json.dump([], destination_file, indent=2)
-        destination_file.close()
-
-    global results_file
-    results_file = file_path
     
 
 """
@@ -83,11 +42,11 @@ def targetValues(file_name):
     chord = 1.0
 
     # Saving the values of the naca numbers into a dictionary
-    naca_numbers = {
-        "maximum_camber": int(file_name[0]) * chord,
-        "maximum_camber_position": int(file_name[1]) * chord,
-        "maximum_thickness": int(file_name[2:]) * chord
-    }
+    naca_numbers = [
+        int(file_name[0]) * chord, # maximum_camber
+        int(file_name[1]) * chord, # maximum_camber_position
+        int(file_name[2:]) * chord # maximum_thickness
+    ]
 
     return naca_numbers
 
@@ -142,3 +101,17 @@ def PlotVTKData(poly_data):
     interactor.Initialize()
     render_window.Render()
     interactor.Start()
+
+
+
+"""
+Saves the results to a compressed .npz file
+"""
+def saveData(data, file_path=None):
+    if file_path is None:
+        current_datetime = datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
+        file_name = f'dataset_{current_datetime}.npz'
+
+        file_path = os.path.join('Dataset', file_name)
+
+    np.savez_compressed(file_path, **data)
