@@ -1,4 +1,5 @@
 import Utils
+from Sensor import sensorSignal
 from FlowSignals import flowSignals
 from ArrivalTimes import arrivalTimes
 from RegionalAverages import regionalAverages
@@ -8,10 +9,12 @@ from RegionalArrivalTimes import regionalArrivalTimes
 
 
 # Input data path
-data_path = "/Volumes/T5/files/" #CHANGE ME
+#data_path = "/Volumes/T5/files/" #CHANGE ME
+data_path = "./0005"
 
 # Features to extract
 flow_signals = False
+sensor_signal = True
 arrival_times = False
 regional_averages = False
 informative_points = False
@@ -58,6 +61,10 @@ for data_file in data_files:
         if regional_arrival_times:
             # Extracting the signals associated to the streamlines
             features = regionalArrivalTimes(reader)
+
+        if sensor_signal:
+            # Extracting the signals associated to the sensor
+            features = sensorSignal(reader)
 
         # Adding the features extracted to the main list
         for key in features.keys():
