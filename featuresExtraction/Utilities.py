@@ -4,7 +4,6 @@ import numpy as np
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-results_file = ""
 
 """
 Given a path, extracts a list of tuples containig the name of the vtk files, the path
@@ -42,13 +41,11 @@ def targetValues(file_name):
     chord = 1.0
 
     # Saving the values of the naca numbers into a dictionary
-    naca_numbers = [
+    return [
         int(file_name[0]) * chord, # maximum_camber
         int(file_name[1]) * chord, # maximum_camber_position
         int(file_name[2:]) * chord # maximum_thickness
     ]
-
-    return naca_numbers
 
 
 """
@@ -88,7 +85,6 @@ def PlotVTKData(poly_data):
     # Renderer window
     render_window = vtk.vtkRenderWindow()
     render_window.AddRenderer(renderer)
-    render_window.SetWindowName('StreamLines')
 
     interactor = vtk.vtkRenderWindowInteractor()
     interactor.SetInteractorStyle(vtk.vtkInteractorStyleTrackballCamera())
@@ -107,11 +103,12 @@ def PlotVTKData(poly_data):
 """
 Saves the results to a compressed .npz file
 """
-def saveData(data, file_path=None):
-    if file_path is None:
-        current_datetime = datetime.now().strftime('%d_%m_%Y_%H_%M_%S')
-        file_name = f'dataset_{current_datetime}.npz'
+def saveData(data, file_path=None, file_name=None):
+    # Name of the destination file
+    file_name = f'{datetime.now().strftime("%d_%m_%Y_%H_%M_%S")}.npz' if file_name is None else f'{file_name}.npz'
+    
+    # Path of the destination file
+    file_path = os.path.join('Dataset', file_name) if file_path is None else os.path.join(file_path, file_name)
 
-        file_path = os.path.join('Dataset', file_name)
-
+    # Saving the data
     np.savez_compressed(file_path, **data)

@@ -1,5 +1,5 @@
 import vtk
-import Utils
+import Utilities
 import numpy as np
 from vtk.util.numpy_support import vtk_to_numpy
 

@@ -4,11 +4,13 @@ import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy
 
 
-# Global variables and constants
+'### GLOBAL VARIABLES AND CONSTANTS ###'
+
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 sensor_distance_range = np.array([10, 100]) # minimum and maximum distance of the sensor from the origin
 sensor_angle_range = np.array([0, 2]) # Range of the angle of the sensor (0pi, 2pi)
 sensor_length = 5.0 # Length of the side of the sensor
+n_sensors = 20 # Nmber of sensors to generate
 bins_count = 128 # Numer of bins
 
 
@@ -65,6 +67,7 @@ def extractCells(target_section):
         cell_p = p[idx]
         cell_U = U[idx]
 
+        # Adding to the main list a cell object
         cells.append(Cell(cell_points, cell_p, cell_U))
 
     return cells
@@ -72,56 +75,63 @@ def extractCells(target_section):
 
 
 "### CLASSES ###"
+
 # Point class
 class Point:
     # Class constructor
     def __init__(self, x, y):
-        self.x = x
-        self.y = y
+        self.x = x # X coordinate of the point
+        self.y = y # Y coordinate of the point
 
 
+    # Overloading of the + operator
     def __add__(self, point):
         x = self.x + point.x
         y = self.y + point.y
 
         return Point(x, y)
 
-
+    # Overloading of the - operator
     def __sub__(self, point):
         x = self.x - point.x
         y = self.y - point.y
 
         return Point(x, y)
 
+    # Overloading of the * operator
     def __mult__(self, point):
         x = self.x * point.x
         y = self.y * point.y
 
         return Point(x, y)
 
-    
+
+    # Overloading of the / operator
     def __truediv__(self, divisor):
         x = self.x / divisor
         y = self.y / divisor
 
         return Point(x, y)
 
-
+    # Overloading of the print function
     def __repr__(self):
         return f'({self.x}, {self.y})'
 
-
+    # Function to plot the point
     def draw(self, ax, s=4, c='k'):
         ax.scatter(self.x, self.y, s=s, c=c)
 
 
 
+# Segment class
 class Segment():
+    # Class constructor
     def __init__(self, p1, p2):
-        self.p1 = p1
-        self.p2 = p2
+        self.p1 = p1 # First point of the segment
+        self.p2 = p2 # Second point of the segment
 
 
+    # Function to compute the intersection point between two lines segments
     def intersectionPoint(self, segment):
         det = (segment.p2.y - segment.p1.y) * (self.p2.x - self.p1.x) - (segment.p2.x - segment.p1.x) * (self.p2.y - self.p1.y)
 
@@ -143,11 +153,15 @@ class Segment():
         return Point(x, y)
 
 
+    # Function to compute the intersection points between a line segment and a polygon
     def intersectionPoints(self, polygon):
         points = []
+        # Iterating over the vertices of the polygon
         for i in range(polygon.num_vertices):
+            # Extracting the i-th side of the polygon
             segment = Segment(polygon.vertices[i], polygon.vertices[(i+1) % polygon.num_vertices])
             
+            # Computing the intersection point between the segment and the current side of the polygon
             intersection = self.intersectionPoint(segment)
             if intersection is not None:
                 points.append(intersection)
@@ -155,12 +169,15 @@ class Segment():
         return points
 
 
+    # Function to plot the line segment
     def draw(self, ax, c='k', lw=1, **kwargs):
         ax.plot([self.p1.x, self.p2.x], [self.p1.y, self.p2.y], c=c, lw=lw, **kwargs)
 
 
 
+# Polygon class
 class Polygon:
+    # Class constructor
     def __init__(self, vertices):
         self.vertices = vertices # Vertices of the polygon
         self.num_vertices = len(vertices) # Number of vertices of the polygon
@@ -178,8 +195,10 @@ class Polygon:
         self.centroid = self.computeCentroid()
 
 
+    # Function to compute the centroid of the polygon
     def computeCentroid(self):
         sum_x, sum_y = 0, 0
+        # Iterating over the vertices of the polygon
         for i in range(self.num_vertices):
             # Extracting the i-th side of the polygon
             a, b = self.vertices[i], self.vertices[(i+1) % self.num_vertices]
@@ -194,9 +213,10 @@ class Polygon:
         return Point(x, y)
 
 
-    # Shoelance algorithm
+    # Shoelace algorithm to compute the area of the polygon
     def computeArea(self):
         area = 0.0
+        # Iterating over the vertices of the polygon
         for i in range(self.num_vertices):
             area += self.vertices[i].x * self.vertices[(i+1) % self.num_vertices].y
             area -= self.vertices[(i+1) % self.num_vertices].x * self.vertices[i].y
@@ -204,46 +224,56 @@ class Polygon:
         return np.abs(area) / 2.0
 
 
-    # Winding number algorithm
+    # Winding number algorithm to check if a point belongs to the polygon
     def containsPoint(self, point):
         general_side = None
+        # Iterating over the vertices of the polygon
         for i in range(self.num_vertices):
+            # Extracting the i-th side of the polygon
             a, b = self.vertices[i], self.vertices[(i+1) % self.num_vertices]
 
             # Computing the side of the point w.r.t. the segment
             side = (point.y - a.y) * (b.x - a.x) - (point.x - a.x) * (b.y - a.y)
 
+            # The point lies on the current side of the polygon
             if side == 0:
                 continue
 
+            # Initializing the side of the polygon
             if general_side is None:
                 general_side = side
                 continue
 
+            # If the side differs from the general one the point does not belong to the polygon
             if general_side * side < 0:
                 return False
 
         return True
 
 
+    # Function to extract the intersection polygon of two polygons
     def intersectionPolygon(self, polygon):
         points = []
 
+        # Adding the points of the first polygon belonging to the second one
         for vertex in self.vertices:
             if polygon.containsPoint(vertex):
                 points.append(vertex)
 
+        # Adding the points of the second polygon belonging to the first one
         for vertex in polygon.vertices:
             if self.containsPoint(vertex):
                 points.append(vertex)
 
+        # Adding the intersection points between the polygons
         for i in range(self.num_vertices):
             side = Segment(self.vertices[i], self.vertices[(i+1) % self.num_vertices])
             points += side.intersectionPoints(polygon)
 
         return Polygon(points) if len(points) > 0 else None
 
-
+    
+    # Function to plot the polygon
     def draw(self, ax, c='k', lw=1, **kwargs):
         pts = self.vertices
         pts.append(Point(pts[0].x, pts[0].y))
@@ -251,7 +281,9 @@ class Polygon:
         ax.plot([pt.x for pt in pts], [pt.y for pt in pts], c=c, lw=lw, **kwargs)
 
     
+    # Function to compute the reference point of the polygon
     def __referencePoint(self):
+        # Computing the sum of the vertices of the polygon
         sum = self.vertices[0]
         for i in range(1, self.num_vertices):
             sum += self.vertices[i]
@@ -259,6 +291,7 @@ class Polygon:
         return sum / self.num_vertices
 
 
+    # Function to define a clockwise order of the vertices of the polygon
     def __clockwiseOrder(self, point):
         # Defining an origin and a reference vector
         origin = self.reference_point
@@ -291,6 +324,7 @@ class Polygon:
 
 # Rectangle class
 class Rectangle(Polygon):
+    # Class constructor
     def __init__(self, center, width, height):
         self.center = center # Center of the rectangle
         self.width = width # Width of the rectangle
@@ -300,7 +334,7 @@ class Rectangle(Polygon):
         self.north = center.y + height # North coordinate
         self.south = center.y - height # South coordinate
 
-        # Instantiating parent class
+        # Initializing the parent class
         super().__init__([
             Point(self.west, self.south), 
             Point(self.west, self.north), 
@@ -309,6 +343,7 @@ class Rectangle(Polygon):
         ])
 
 
+    # Function to check if a cell belongs to the rectangle
     def containsCell(self, cell):
         # Extracting the coordinates of the centroid of the cell
         x = cell.centroid.x
@@ -317,6 +352,7 @@ class Rectangle(Polygon):
         return self.containsPoint(Point(x, y))
 
 
+    # Function to check if a rectangle intersects the current one
     def intersects(self, range):
         return not (range.west > self.east or range.east < self.west or range.south > self.north or range.north < self.south)
 
@@ -324,13 +360,15 @@ class Rectangle(Polygon):
 
 # Quadtree class
 class QuadTree:
+    # Class constructor
     def __init__(self, boundary, capacity = 4):
-        self.boundary = boundary
-        self.capacity = capacity
-        self.cells = []
-        self.divided = False
+        self.boundary = boundary # Boundary of the Quad Tree
+        self.capacity = capacity # Number of childs of the quad tree
+        self.cells = [] # Cells of the Quad Tree
+        self.divided = False # Flag to indicate if the Quad Tree has been divided
 
 
+    # Function to inset a cell into the quad tree
     def insert(self, cell):
         # Checking if the cell is within the QuadTree boundaries
         if not self.boundary.containsCell(cell):
@@ -341,9 +379,11 @@ class QuadTree:
             self.cells.append(cell)
             return True
 
+        # Dividing the quad tree
         if not self.divided:
             self.divide()
 
+        # Inserting the cell into the correct child
         if self.nw.insert(cell):
             return True
         elif self.ne.insert(cell):
@@ -356,16 +396,20 @@ class QuadTree:
         return False
 
 
+    # Function to query the cells belonging to a specified range of values
     def queryRange(self, range):
         cells_found = []
 
+        # Checking if the quad tree intersects the specified range
         if not self.boundary.intersects(range):
             return []
 
+        # Adding the cells belonging to the range
         for cell in self.cells:
             if range.containsCell(cell):
                 cells_found.append(cell)
 
+        # Adding the cells belonging to the child trees
         if self.divided:
             cells_found.extend(self.nw.queryRange(range))
             cells_found.extend(self.ne.queryRange(range))
@@ -375,12 +419,17 @@ class QuadTree:
         return cells_found
 
 
+    # Function to divide the quad tree
     def divide(self):
+        # Center of the child trees
         center_x = self.boundary.center.x
         center_y = self.boundary.center.y
+
+        # Computing the width and height of the child trees
         new_width = self.boundary.width / 2
         new_height = self.boundary.height / 2
 
+        # Creating the child trees
         nw = Rectangle(Point(center_x - new_width, center_y + new_height), new_width, new_height)
         self.nw = QuadTree(nw)
 
@@ -393,17 +442,23 @@ class QuadTree:
         se = Rectangle(Point(center_x + new_width, center_y - new_height), new_width, new_height)
         self.se = QuadTree(se)
 
+        # Flagging the current tree as divided
         self.divided = True
 
 
+    # Overloading of the len() function
     def __len__(self):
+        # Initilalizing the counter to the cells of the current quad tree
         count = len(self.cells)
+
+        # Adding to the counter the cumber of cells belonging to the child trees
         if self.divided:
             count += len(self.nw) + len(self.ne) + len(self.sw) + len(self.se)
 
         return count
 
 
+    # Function to plot the quad tree and its childs
     def draw(self, ax):
         self.boundary.draw(ax)
 
@@ -428,7 +483,8 @@ class Cell(Polygon):
 
 # Sensor class
 class Sensor(Rectangle):
-    def __init__(self, length, bins_count, r=None, theta=None):
+    # Class constructor
+    def __init__(self, length, r=None, theta=None):
         # Extracting the radius and the angle of the sensor w.r.t. the origin
         self.r = np.random.uniform(np.min(sensor_distance_range), np.max(sensor_distance_range)) if r is None else r # Distance of the sensor
         self.theta = np.pi * np.random.uniform(np.min(sensor_angle_range), np.max(sensor_angle_range)) if theta is None else theta # Angle of the sensor
@@ -440,9 +496,6 @@ class Sensor(Rectangle):
         # Initializing the parent class
         super().__init__(Point(x, y), length / 2, length / 2)
 
-        # Number of bins
-        self.bins_count = bins_count
-
         # List of the cells belonging to the sensor 
         self.cells = []
 
@@ -450,9 +503,10 @@ class Sensor(Rectangle):
         self.signal = {}
 
     
-    def generateSignal(self):
+    # Function to generate the signal of the flow fields for the sensor
+    def generateSignal(self, bins_count):
         # Binning operation
-        bins = self.__surfaceBinning()
+        bins = self.__surfaceBinning(bins_count)
 
         # Upsampling the signal in order to obtain the values of the empty bins
         bins = self.__upsample(bins)
@@ -465,25 +519,44 @@ class Sensor(Rectangle):
         return self.signal
 
 
+    # Function to plot the signal of the specified flow field
     def displaySignal(self, field_name):
         data = self.signal[field_name]
-
         plt.plot(data)
         plt.show()
 
+
+    # Function to plot the sensor and its cells
+    def displaySensor(self):
+        # Plotting the sensor's cells
+        plt.figure(figsize=(700/72, 500/72), dpi=72)
+        ax = plt.subplot()
+        ax.set_xlim(self.west-10, self.east+10)
+        ax.set_ylim(self.south-10, self.north+10)
+        self.draw(ax)
+        for cell in self.cells:
+            cell.draw(ax)
+        plt.tight_layout()
+        plt.show()
+
     
-    def __surfaceBinning(self):
+    # Function to perform the binning operation by averaging the values of the cells fully belonging and
+    # intersecting each bin.
+    def __surfaceBinning(self, bins_count):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.south, self.north, num=self.bins_count+1)
+        bins_bounds = np.linspace(self.south, self.north, num=bins_count+1)
 
         # Sorting the cells according to their maximum Y coordinate: to speed up the algorithm
         self.cells = sorted(self.cells, key=lambda cell: np.min([vertex.y for vertex in cell.vertices]))   
 
         bins = []
+        # Iterating over the bins
         for idx in range(len(bins_bounds) - 1):
+            # Extracting the minimum and maximum y coordinate of the bin
             bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
             bin__max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
 
+            # Creating a polygon object whose vertices are the ones of the bin
             bin = Polygon([
                 Point(self.west, bin__min_y),
                 Point(self.west, bin__max_y),
@@ -492,6 +565,7 @@ class Sensor(Rectangle):
             ])
 
             bin_cells = []
+            # Iterating over the cells of the sensor
             for cell in self.cells:
                 # Stopping the execution if the cells are above the upper bound
                 if np.min([vertex.y for vertex in cell.vertices]) > bin__max_y:
@@ -536,15 +610,20 @@ class Sensor(Rectangle):
         return bins
 
 
-    def __centroidBinning(self):
+    # Function to perform the binning operation by averaging the values of the cells whose centroid belongs
+    # to the i-t bin.
+    def __centroidBinning(self, bins_count):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.south, self.north, num=self.bins_count+1)
+        bins_bounds = np.linspace(self.south, self.north, num=bins_count+1)
 
         bins = []
+        # Iterating over the bins
         for idx in range(len(bins_bounds) - 1):
+            # Extracting the minimum and maximum y coordinate of the bin
             bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
             bin_max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
 
+            # Creating a polygon object whose vertices are the ones of the bin
             bin = Polygon([
                 Point(self.west, bin__min_y),
                 Point(self.west, bin_max_y),
@@ -565,6 +644,8 @@ class Sensor(Rectangle):
 
 
     @staticmethod
+    # Function to upsample the signal by assigning to the empty bins the interpolation of the
+    # values of the closest one
     def __upsample(bins):
         # Setting the values of the first and last bin to the closest ones, if thay are empty.
         if(bins[0]["p"] is None or bins[0]["U"] is None):
@@ -604,6 +685,7 @@ class Sensor(Rectangle):
                         upper_weight = 1 / j - i
                     j += 1
 
+                # Weighted average of the values of the closest bins
                 bins[i]["p"] = np.average([lower_bin["p"], upper_bin["p"]], weights=[lower_weight, upper_weight])
                 bins[i]["U"] = np.average([lower_bin["U"], upper_bin["U"]], weights=[lower_weight, upper_weight])
 
@@ -611,6 +693,8 @@ class Sensor(Rectangle):
 
 
 
+# Function to generate the signal of the flow fields for n sensors located at a random position
+# in te space
 def sensorSignal(reader):
     # Extracting the spatial data
     poly_data = reader.GetOutput()
@@ -632,44 +716,37 @@ def sensorSignal(reader):
     # Creating the QuadTree
     quad_tree = QuadTree(domain)
 
-    print("QUADTREE CREATED")
-
     # Extract the cells of the space
     cells = extractCells(target_section)
 
-    print("CELLS EXTRACTED")
-
+    # Inserting the cells into the quad tree
     for cell in cells:
         quad_tree.insert(cell)
-
-    print("POINTS INSERTED")
     
     signals = []
-    for _ in range(20):
-        sensor = Sensor(sensor_length, bins_count)
+    # Iterating over the number of sensors to extract
+    for _ in range(n_sensors):
+        sensor = Sensor(sensor_length)
 
-        print(f"SENSOR CREATED: r={sensor.r} | theta={sensor.theta}")
-
+        # Extracting the cells belonging to the current sensor
         sensor.cells = quad_tree.queryRange(sensor)
-
-        print(f"SENSOR CELLS EXTRACTED: {len(sensor.cells)}")
-
-        # Plotting the sensor's cells
-        plt.figure(figsize=(700/72, 500/72), dpi=72)
-        ax = plt.subplot()
-        ax.set_xlim(sensor.west-10, sensor.east+10)
-        ax.set_ylim(sensor.south-10, sensor.north+10)
-        sensor.draw(ax)
-        for cell in sensor.cells:
-            cell.draw(ax)
-        #plt.tight_layout()
-        plt.show()
    
-        # Generating the signal
-        signal = sensor.generateSignal()
-        signals.append(signal)
+        # Plotting the sensor
+        sensor.displaySensor()
 
-        print("SIGNAL GENERATED")
+        # Generating the signal
+        signal = sensor.generateSignal(bins_count)
 
         # Plotting the signal
-        sensor.displaySignal("p")
+        #sensor.displaySignal("p")
+
+        # Adding the data into the main list
+        signal_data = {"p": [], "U": [], "r": None, "theta": None}
+        signal_data["p"] = signal["p"]
+        signal_data["U"] = signal["U"]
+        signal_data["r"] = sensor.r
+        signal_data["theta"] = sensor.theta
+
+        signals.append(signal_data)
+
+    return signals
