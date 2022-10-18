@@ -10,12 +10,14 @@ plt.style.use('seaborn')
 
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
-n_sensors = 10 # Nmber of sensors to generate
-resolution = 128 # Resolution of the signal (number of bins)
-sensor_width = 10.0 # Width of the sensor
-sensor_height = 10.0 # Height of the senor
-#normal_vector = (0, 0, 1) # Vector normal to the sensor (Orthogonal to the flow)
-normal_vector = (0, 0, 1) # Vector normal to the sensor (Parallel to the flow)
+denoise = True # Flag to denoise or not the signal (Only for 1D signals)
+n_sensors = 1 # Number of sensors to generate
+signal_type = "1D" # Type of the signal (1D or 2D)
+sensor_width = 2.0 # Width of the sensor (in units of c)
+sensor_height = 256.0 # Height of the senor (in units of c)
+normal_vector = (1, 0, 0) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
+vertical_resolution = 30 # Vertical Resolution of the signal (number of bins) 
+horizontal_resolution = 20 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
 
@@ -407,6 +409,111 @@ class Cell(Polygon):
 
 
 
+# Signal class
+class Signal:
+    # Class constructor
+    def __init__(self, p, U):
+        self.p = p # Pressure field of the signal
+        self.U = U # Velocity field of the signal
+
+
+    # Function to plot the signal of the specified flow field
+    def display(self, field_name):
+        data = getattr(self, field_name)
+
+        if data.ndim == 1:
+            plt.xlabel("bins")
+            plt.ylabel(field_name)
+            plt.plot(data)
+        else:
+            plt.imshow(data.T, cmap="gray")
+            plt.grid(False)
+
+        plt.title(field_name)
+        plt.show()
+
+
+    # Function to upsample the signal by assigning to the empty bins the interpolation of the
+    # values of the closest one
+    def upsample(self, field_name):
+        # Extracting the signal to upsample
+        signal = getattr(self, field_name)
+
+        # Setting the values of the first and last bin to the closest ones, if thay are empty.
+        if signal[0] is None:
+            i, upper_bin = 0, None
+            while(upper_bin is None and i < len(signal)):
+                if signal[i] is not None:
+                    upper_bin = signal[i]
+                i += 1
+
+            signal[0] = float(upper_bin) if upper_bin is not None else 0.0
+
+        if signal[-1] is None:
+            i, lower_bin = len(signal) - 1, None
+            while(lower_bin is None and i > 0):
+                if signal[i] is not None:
+                    lower_bin = signal[i]
+                i -= 1
+
+            signal[-1] = float(lower_bin) if lower_bin is not None else 0.0
+
+        # For each empty bin, obtains its values by interpolating the values of the adjacent ones.
+        for i in range(1, len(signal)-1):
+            if signal[i] is None:
+                j, lower_bin = i, None
+                while(lower_bin is None and j >= 0):
+                    if signal[j] is not None:
+                        lower_bin = signal[j]
+                        lower_weight = 1 / i - j
+                    j -= 1
+
+                j, upper_bin = i, None
+                while(upper_bin is None and j < len(signal)):
+                    if signal[j] is not None:
+                        upper_bin = signal[j]
+                        upper_weight = 1 / j - i
+                    j += 1
+
+                upper_bin = upper_bin if upper_bin is not None else 0.0
+                lower_bin = lower_bin if lower_bin is not None else 0.0
+
+                # Weighted average of the values of the closest bins
+                signal[i] = np.average([lower_bin, upper_bin], weights=[lower_weight, upper_weight])
+
+        # Updating the signal with the upsampled one
+        setattr(self, field_name, signal)
+
+        return self
+
+
+    # Function to denoise the signal through a Low Pass filter
+    def denoise(self):
+        fs = 16.0
+        order = 4
+        nyq = 0.5 * fs
+        cutoff = 2 / nyq
+
+        # Get the filter coefficients 
+        b, a = signal.butter(order, cutoff, 'low', analog=False)
+
+        def displayFilter(b, a):
+            w, h = signal.freqs(b, a)
+            plt.semilogx(w, 20 * np.log10(abs(h)))
+            plt.xlabel('Frequency [radians / second]')
+            plt.ylabel('Amplitude [dB]')
+            plt.margins(0, 0.1)
+            plt.grid(which='both', axis='both')
+            plt.axvline(cutoff, color='green')
+            plt.show()
+
+        self.p = signal.filtfilt(b, a, self.p)
+        self.U = signal.filtfilt(b, a, self.U)
+
+        return self
+
+
+
 # Sensor class
 class Sensor(Rectangle):
     # Class constructor
@@ -417,11 +524,19 @@ class Sensor(Rectangle):
         # Extracting the section of interest
         self.mesh = cut(mesh, (origin.x, origin.y, origin.z), normal_vector)
 
+        # Computing the bounds of the section
+        bounds = self.mesh.GetBounds()
+        x_length = np.abs(bounds[1] - bounds[1]) 
+        y_length = np.abs(bounds[2] - bounds[3]) 
+        z_length = np.abs(bounds[4] - bounds[5]) 
+
         if normal_vector == (0, 0, 1):
-            self.west = origin.x - width / 2 # West coordinate
-            self.east = origin.x + width / 2 # East coordinate
-            self.north = origin.y + height / 2 # North coordinate
-            self.south = origin.y - height / 2 # South coordinate
+            # Correcting width and height for incorrect values
+            if width >= x_length: width = x_length
+            if height >= y_length: height = y_length
+            
+            # Initializing the parent class
+            super().__init__(Point(origin.x, origin.y), width, height)
 
             # Clipping the space to extract the sensor according to its dimensions and position
             self.mesh = clip(self.mesh, (self.west, 0, 0), (1, 0, 0))
@@ -431,15 +546,14 @@ class Sensor(Rectangle):
 
             coordinates_mask = [True, True, False]
             self.cells = extractCells(self.mesh, coordinates_mask, transpose=False) if self.mesh.GetNumberOfCells() > 0 else []
-
-            # Initializing the parent class
-            super().__init__(Point(origin.x, origin.y), width, height)
         
         if normal_vector == (1, 0, 0):
-            self.west = origin.z - width / 2 # West coordinate
-            self.east = origin.z + width / 2 # East coordinate
-            self.north = origin.y + height / 2 # North coordinate
-            self.south = origin.y - height / 2 # South coordinate
+            # Correcting width and height for incorrect values
+            if width >= z_length: width = z_length
+            if height >= y_length: height = y_length
+
+            # Initializing the parent class
+            super().__init__(Point(origin.z, origin.y), width, height)
 
             # Clipping the space to extract the sensor according to its dimensions and position
             self.mesh = clip(self.mesh, (0, 0, self.west), (0, 0, 1))
@@ -449,38 +563,26 @@ class Sensor(Rectangle):
 
             coordinates_mask = [False, True, True]
             self.cells = extractCells(self.mesh, coordinates_mask, transpose=True) if self.mesh.GetNumberOfCells() > 0 else []
-        
-            # Initializing the parent class
-            super().__init__(Point(origin.z, origin.y), width, height)
             
 
     # Function to generate the signal of the flow fields for the sensor
-    def generateSignal(self, resolution):
+    def generateSignal(self, resolution, type, denoise):
         # Binning operation
-        self.__1D_binning(resolution)
-        #self.__2D_binning(resolution)
-        #self.__centroidBinning(resolution)
+        if type == "1D":
+            #self.__1D_binning(resolution[1])
+            self.__1D__fastBinning(resolution[1])
 
-        self.signal = self.__denoise(self.signal)
+            if denoise:
+                self.signal.denoise()
+
+        elif type == "2D":
+            self.__2D_binning(*resolution)
 
         return self.signal
 
 
-    # Function to plot the signal of the specified flow field
-    def displaySignal(self, signal, field_name):
-        data = signal[field_name]
-
-        if data.ndim == 1:
-            plt.plot(data)
-        else:
-            plt.imshow(data, cmap="gray")
-            plt.grid(False)
-
-        plt.show()
-
-
     # Function to plot the sensor and its cells
-    def displaySensor(self):
+    def display(self):
         # Plotting the sensor's cells
         ax = plt.subplot()
         ax.set_xlim(self.west-2, self.east+2)
@@ -500,10 +602,10 @@ class Sensor(Rectangle):
         # Sorting the cells according to their maximum Y coordinate: to speed up the algorithm
         self.cells = sorted(self.cells, key=lambda cell: np.min([vertex.y for vertex in cell.vertices]))   
 
-        self.signal = {
-            "p": np.zeros(r),
-            "U": np.zeros(r)
-        }
+        self.signal = Signal(
+            p = np.zeros(r),
+            U = np.zeros(r)
+        )
 
         # Iterating over the bins
         for idx in range(r):
@@ -552,23 +654,23 @@ class Sensor(Rectangle):
             sum_areas = np.sum(cells_areas)
 
             # Computing the average of the flow quantities of the cells belonging to the current bin
-            self.signal["p"][idx] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
-            self.signal["U"][idx] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
+            self.signal.p[idx] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
+            self.signal.U[idx] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
 
 
-    def __2D_binning(self, r):
-        self.signal = {
-            "p": np.zeros((r, r)),
-            "U": np.zeros((r, r)),
-        }
+    def __2D_binning(self, rh, rv):
+        self.signal = Signal(
+            p = np.zeros((rh, rv)),
+            U = np.zeros((rh, rv))
+        )
 
-        for i in range(r):
-            for j in range(r):
+        for i in range(rh):
+            for j in range(rv):
                 bin = Polygon([
-                    Point((self.west + i*(self.width/r)), (self.south + j*(self.height/r))),
-                    Point((self.west + i*(self.width/r)), (self.south + (j+1)*(self.height/r))),
-                    Point((self.west + (i+1)*(self.width/r)), (self.south + (j+1)*(self.height/r))),
-                    Point((self.west + (i+1)*(self.width/r)), (self.south + j*(self.height/r))),
+                    Point((self.west + i*(self.width/rh)), (self.south + j*(self.height/rv))),
+                    Point((self.west + i*(self.width/rh)), (self.south + (j+1)*(self.height/rv))),
+                    Point((self.west + (i+1)*(self.width/rh)), (self.south + (j+1)*(self.height/rv))),
+                    Point((self.west + (i+1)*(self.width/rh)), (self.south + j*(self.height/rv))),
                 ])
 
                 bin_cells = []
@@ -599,20 +701,20 @@ class Sensor(Rectangle):
                 sum_areas = np.sum(cells_areas)
 
                 # Computing the average of the flow quantities of the cells belonging to the current bin
-                self.signal["p"][i,j] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
-                self.signal["U"][i,j] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
+                self.signal.p[i,j] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
+                self.signal.U[i,j] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
 
 
     # Function to perform the binning operation by averaging the values of the cells whose centroid belongs
     # to the i-t bin.
-    def __centroidBinning(self, r):
+    def __1D__fastBinning(self, r):
         # Computing the bounds of the bins
         bins_bounds = np.linspace(self.south, self.north, num=r+1)
 
-        self.signal = {
-            "p": np.zeros(r),
-            "U": np.zeros(r)
-        }
+        self.signal = Signal(
+            p = np.zeros(r),
+            U = np.zeros(r)
+        )
 
         # Iterating over the bins
         for idx in range(r):
@@ -632,88 +734,16 @@ class Sensor(Rectangle):
             bin_cells = [cell for cell in self.cells if bin.containsPoint(cell.centroid)]
 
             # Computing the pressure and velocity field associated to the i-th bin
-            self.signal["p"][idx] = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
-            self.signal["U"][idx] = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
+            self.signal.p[idx] = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
+            self.signal.p[idx] = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
         
-        self.signal["p"] = self.__upsample(self.signal["p"])
-        self.signal["U"] = self.__upsample(self.signal["p"])
+        # Upsampling the singla to fill empty bins
+        self.signal.upsample("p")
+        self.signal.upsample("U")
 
 
-    @staticmethod
-    # Function to upsample the signal by assigning to the empty bins the interpolation of the
-    # values of the closest one
-    def __upsample(bins):
-        # Setting the values of the first and last bin to the closest ones, if thay are empty.
-        if bins[0] is None:
-            i, upper_bin = 0, None
-            while(upper_bin is None and i < len(bins)):
-                if bins[i] is not None:
-                    upper_bin = bins[i]
-                i += 1
 
-            bins[0] = float(upper_bin) if upper_bin is not None else 0.0
-
-        if bins[-1] is None:
-            i, lower_bin = len(bins) - 1, None
-            while(lower_bin is None and i > 0):
-                if bins[i] is not None:
-                    lower_bin = bins[i]
-                i -= 1
-
-            bins[-1] = float(lower_bin) if lower_bin is not None else 0.0
-
-        # For each empty bin, obtains its values by interpolating the values of the adjacent ones.
-        for i in range(1, len(bins)-1):
-            if bins[i] is None:
-                j, lower_bin = i, None
-                while(lower_bin is None and j >= 0):
-                    if bins[j] is not None:
-                        lower_bin = bins[j]
-                        lower_weight = 1 / i - j
-                    j -= 1
-
-                j, upper_bin = i, None
-                while(upper_bin is None and j < len(bins)):
-                    if bins[j] is not None:
-                        upper_bin = bins[j]
-                        upper_weight = 1 / j - i
-                    j += 1
-
-                upper_bin = upper_bin if upper_bin is not None else 0.0
-                lower_bin = lower_bin if lower_bin is not None else 0.0
-
-                # Weighted average of the values of the closest bins
-                bins[i] = np.average([lower_bin, upper_bin], weights=[lower_weight, upper_weight])
-
-        return bins
-
-
-    @staticmethod
-    def __denoise(sig):
-        fs = 16.0
-        order = 4
-        nyq = 0.5 * fs
-        cutoff = 2 / nyq
-
-        # Get the filter coefficients 
-        b, a = signal.butter(order, cutoff, 'low', analog=False)
-
-        def displayFilter(b, a):
-            w, h = signal.freqs(b, a)
-            plt.semilogx(w, 20 * np.log10(abs(h)))
-            plt.xlabel('Frequency [radians / second]')
-            plt.ylabel('Amplitude [dB]')
-            plt.margins(0, 0.1)
-            plt.grid(which='both', axis='both')
-            plt.axvline(cutoff, color='green')
-            plt.show()
-
-        sig["p"] = signal.filtfilt(b, a, sig["p"])
-        sig["U"] = signal.filtfilt(b, a, sig["U"])
-
-        return sig
-
-
+'### MAIN FUNCTION ###'
 
 # Function to generate the signal of the flow fields for n sensors located at a random position
 # in te space
@@ -731,21 +761,24 @@ def sensorSignal(reader):
         x = np.random.uniform(0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
         y = np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
 
+        x = 50.0
+        y = 0.0
+        
         # Creating the sensor object
         origin = Point(x, y, 0.5)
         sensor = Sensor(origin, normal_vector, sensor_width, sensor_height, mesh)
 
         # Generating the signal
-        signal = sensor.generateSignal(resolution)
+        sensor.generateSignal(resolution=(horizontal_resolution, vertical_resolution), type=signal_type, denoise=denoise)
 
         # Plotting the mesh of the sensor and the signal
-        sensor.displaySensor()
-        sensor.displaySignal(signal, field_name="p")
+        sensor.display()
+        sensor.signal.display(field_name="p")
 
         # Adding the signal into the main list
         signals.append({
-            "p": signal["p"],
-            "U": signal["U"],
+            "p": sensor.signal.p,
+            "U": sensor.signal.U,
             "y": sensor.origin.x, 
             "x": sensor.origin.y
         })
