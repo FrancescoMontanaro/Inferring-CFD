@@ -11,12 +11,12 @@ plt.style.use('seaborn')
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
 denoise = False # Flag to denoise or not the signal (Only for 1D signals)
-n_sensors = 1 # Number of sensors to generate
+n_sensors = 100 # Number of sensors to generate
 signal_type = "2D" # Type of the signal (1D or 2D)
-sensor_width = 1.0 # Width of the sensor (in units of c)
-sensor_height = 256.0 # Height of the senor (in units of c)
-normal_vector = (1, 0, 0) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
-vertical_resolution = 30 # Vertical Resolution of the signal (number of bins) 
+sensor_width = 10.0 # Width of the sensor (in units of c)
+sensor_height = 10.0 # Height of the senor (in units of c)
+normal_vector = (0, 0, 1) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
+vertical_resolution = 20 # Vertical Resolution of the signal (number of bins) 
 horizontal_resolution = 20 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
@@ -526,9 +526,9 @@ class Sensor(Rectangle):
 
         # Computing the bounds of the section
         bounds = self.mesh.GetBounds()
-        x_length = np.abs(bounds[1] - bounds[1]) 
+        x_length = np.abs(bounds[1] - bounds[0]) 
         y_length = np.abs(bounds[2] - bounds[3]) 
-        z_length = np.abs(bounds[4] - bounds[5]) 
+        z_length = np.abs(bounds[4] - bounds[5])
 
         if normal_vector == (0, 0, 1):
             # Correcting width and height for incorrect values
@@ -569,8 +569,7 @@ class Sensor(Rectangle):
     def generateSignal(self, resolution, type, denoise):
         # Binning operation
         if type == "1D":
-            #self.__1D_binning(resolution[1])
-            self.__1D__fastBinning(resolution[1])
+            self.__1D_binning(resolution[1])
 
             if denoise:
                 self.signal.denoise()
@@ -754,11 +753,13 @@ def sensorSignal(reader):
     # Extracting the X and Y boundaries of the space
     bounds = mesh.GetBounds()
     bounds = bounds[:4]
+
+
     
     signals = []
     # Iterating over the number of sensors to extract
     for _ in range(n_sensors):
-        x = np.random.uniform(0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
+        x = np.random.uniform(10.0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
         y = np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
         
         # Creating the sensor object
@@ -769,8 +770,8 @@ def sensorSignal(reader):
         sensor.generateSignal(resolution=(horizontal_resolution, vertical_resolution), type=signal_type, denoise=denoise)
 
         # Plotting the mesh of the sensor and the signal
-        sensor.display()
-        sensor.signal.display(field_name="p")
+        #sensor.display()
+        #sensor.signal.display(field_name="p")
 
         # Adding the signal into the main list
         signals.append({
