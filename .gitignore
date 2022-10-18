@@ -6,3 +6,4 @@ Dataset/
 Results/
 .ipynb_checkpoints/
 VTK_files/
+Quadtree.py

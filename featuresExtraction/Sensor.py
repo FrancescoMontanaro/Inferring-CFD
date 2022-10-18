@@ -1,46 +1,69 @@
 import vtk
+import Utilities
 import numpy as np
+from scipy import signal
 import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy
+
+plt.style.use('seaborn')
 
 
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
+n_sensors = 10 # Nmber of sensors to generate
+resolution = 128 # Resolution of the signal (number of bins)
+sensor_width = 10.0 # Width of the sensor
+sensor_height = 10.0 # Height of the senor
+#normal_vector = (0, 0, 1) # Vector normal to the sensor (Orthogonal to the flow)
+normal_vector = (0, 0, 1) # Vector normal to the sensor (Parallel to the flow)
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
-sensor_distance_range = np.array([10, 100]) # minimum and maximum distance of the sensor from the origin
-sensor_angle_range = np.array([0, 2]) # Range of the angle of the sensor (0pi, 2pi)
-sensor_length = 5.0 # Length of the side of the sensor
-n_sensors = 20 # Nmber of sensors to generate
-bins_count = 128 # Numer of bins
-
 
 
 "### FUNCTIONS ###"
 
-# Function to cut the space in order to extract the target section
-def extractSection(poly_data):
-    # Creating the cutting planes
+# Function to extract a section of the space
+def cut(mesh, origin, normal_vector):
+    # Creating the cutting plane
     plane = vtk.vtkPlane()
-    plane.SetOrigin(0, 0, 0.5)
-    plane.SetNormal(0, 0, 1) #Orthogonal to the z axis
+    plane.SetOrigin(*origin)
+    plane.SetNormal(*normal_vector)
 
-    # Cutting the space in the first direction
+    # Cutting the space
     cutter = vtk.vtkCutter()
     cutter.SetCutFunction(plane)
-    cutter.SetInputData(poly_data)
+    cutter.SetInputData(mesh)
     cutter.Update()
 
-    # Extracting the first target section
-    target_section = cutter.GetOutput()
+    # Extracting the cut section
+    cut_section = cutter.GetOutput()
 
-    return target_section
+    return cut_section
+
+
+# Function to extract a clip of the space
+def clip(mesh, origin, normal_vector):
+    # Creating the cutting plane
+    plane = vtk.vtkPlane()
+    plane.SetOrigin(*origin)
+    plane.SetNormal(*normal_vector)
+
+    # Clipping the space
+    clipper = vtk.vtkClipPolyData()
+    clipper.SetClipFunction(plane)
+    clipper.SetInputData(mesh)
+    clipper.Update()
+
+    # Extracting the clipped section
+    clipped_mesh = clipper.GetOutput()
+
+    return clipped_mesh
 
 
 # Function to extract the cells from the space
-def extractCells(target_section):
+def extractCells(mesh, mask, transpose=False):
     # Extracting the flow quantities
-    p = vtk_to_numpy(target_section.GetCellData().GetArray('p'))
-    U = vtk_to_numpy(target_section.GetCellData().GetArray('U'))
+    p = vtk_to_numpy(mesh.GetCellData().GetArray('p'))
+    U = vtk_to_numpy(mesh.GetCellData().GetArray('U'))
     U[:,2] = 0.0 # Removing the z component of the velocity
 
     # Computing the magnitude of the velocity vector
@@ -50,18 +73,19 @@ def extractCells(target_section):
     U /= free_stream__velocity_magnitude
 
     # Extracting the number of cells
-    n_cells = target_section.GetNumberOfCells()
+    n_cells = mesh.GetNumberOfCells()
 
     cells = []
     # Iterating over the cells of the section
     for idx in range(n_cells):
         # Extracting the i-th cell
-        cell = target_section.GetCell(idx)
+        cell = mesh.GetCell(idx)
 
         # Extracting the points of the cell
         cell_points = np.array(vtk_to_numpy(cell.GetPoints().GetData()))
-        cell_points = cell_points[:, :2] # Removing the z coordinate 
-        cell_points = [Point(x, y) for x, y in cell_points]
+        cell_points = cell_points[:, mask] # Removing the useless coordinates
+        
+        cell_points = [Point(a, b) for a, b in cell_points] if not transpose else [Point(b, a) for a, b in cell_points]
 
         # Extracting the flow quantites of the cell
         cell_p = p[idx]
@@ -79,31 +103,46 @@ def extractCells(target_section):
 # Point class
 class Point:
     # Class constructor
-    def __init__(self, x, y):
+    def __init__(self, x, y, z=None):
         self.x = x # X coordinate of the point
         self.y = y # Y coordinate of the point
+        self.z = z # Z coordinate of the point
 
 
     # Overloading of the + operator
     def __add__(self, point):
         x = self.x + point.x
         y = self.y + point.y
+        
+        if self.z is not None and point.z is not None:
+            z = self.z + point.z
+            return Point(x, y, z)
+        else:
+            return Point(x, y)
 
-        return Point(x, y)
 
     # Overloading of the - operator
     def __sub__(self, point):
         x = self.x - point.x
         y = self.y - point.y
 
-        return Point(x, y)
+        if self.z is not None and point.z is not None:
+            z = self.z - point.z
+            return Point(x, y, z)
+        else:
+            return Point(x, y)
+
 
     # Overloading of the * operator
     def __mult__(self, point):
         x = self.x * point.x
         y = self.y * point.y
 
-        return Point(x, y)
+        if self.z is not None and point.z is not None:
+            z = self.z * point.z
+            return Point(x, y, z)
+        else:
+            return Point(x, y)
 
 
     # Overloading of the / operator
@@ -111,20 +150,32 @@ class Point:
         x = self.x / divisor
         y = self.y / divisor
 
-        return Point(x, y)
+        if self.z is not None:
+            z = self.z / divisor
+            return Point(x, y, z)
+        else:
+            return Point(x, y)
+
 
     # Overloading of the print function
     def __repr__(self):
-        return f'({self.x}, {self.y})'
+        if self.z is not None:
+            return f'({self.x}, {self.y}, {self.z})'
+        else:
+            return f'({self.x}, {self.y})'
+
 
     # Function to plot the point
     def draw(self, ax, s=4, c='k'):
-        ax.scatter(self.x, self.y, s=s, c=c)
+        if self.z is not None:
+            ax.scatter(self.x, self.y, self.z, s=s, c=c)
+        else:
+            ax.scatter(self.x, self.y, s=s, c=c)
 
 
 
 # Segment class
-class Segment():
+class Segment:
     # Class constructor
     def __init__(self, p1, p2):
         self.p1 = p1 # First point of the segment
@@ -329,10 +380,10 @@ class Rectangle(Polygon):
         self.center = center # Center of the rectangle
         self.width = width # Width of the rectangle
         self.height = height # Height of the rectangle
-        self.west = center.x - width # West coordinate
-        self.east = center.x + width # East coordinate
-        self.north = center.y + height # North coordinate
-        self.south = center.y - height # South coordinate
+        self.west = center.x - width / 2 # West coordinate
+        self.east = center.x + width / 2 # East coordinate
+        self.north = center.y + height / 2 # North coordinate
+        self.south = center.y - height / 2 # South coordinate
 
         # Initializing the parent class
         super().__init__([
@@ -342,131 +393,6 @@ class Rectangle(Polygon):
             Point(self.east, self.south)
         ])
 
-
-    # Function to check if a cell belongs to the rectangle
-    def containsCell(self, cell):
-        # Extracting the coordinates of the centroid of the cell
-        x = cell.centroid.x
-        y = cell.centroid.y
-
-        return self.containsPoint(Point(x, y))
-
-
-    # Function to check if a rectangle intersects the current one
-    def intersects(self, range):
-        return not (range.west > self.east or range.east < self.west or range.south > self.north or range.north < self.south)
-
-
-
-# Quadtree class
-class QuadTree:
-    # Class constructor
-    def __init__(self, boundary, capacity = 4):
-        self.boundary = boundary # Boundary of the Quad Tree
-        self.capacity = capacity # Number of childs of the quad tree
-        self.cells = [] # Cells of the Quad Tree
-        self.divided = False # Flag to indicate if the Quad Tree has been divided
-
-
-    # Function to inset a cell into the quad tree
-    def insert(self, cell):
-        # Checking if the cell is within the QuadTree boundaries
-        if not self.boundary.containsCell(cell):
-            return False
-
-        # Adding the point if the capacity has not been reached
-        if len(self.cells) < self.capacity:
-            self.cells.append(cell)
-            return True
-
-        # Dividing the quad tree
-        if not self.divided:
-            self.divide()
-
-        # Inserting the cell into the correct child
-        if self.nw.insert(cell):
-            return True
-        elif self.ne.insert(cell):
-            return True
-        elif self.sw.insert(cell):
-            return True
-        elif self.se.insert(cell):
-            return True
-
-        return False
-
-
-    # Function to query the cells belonging to a specified range of values
-    def queryRange(self, range):
-        cells_found = []
-
-        # Checking if the quad tree intersects the specified range
-        if not self.boundary.intersects(range):
-            return []
-
-        # Adding the cells belonging to the range
-        for cell in self.cells:
-            if range.containsCell(cell):
-                cells_found.append(cell)
-
-        # Adding the cells belonging to the child trees
-        if self.divided:
-            cells_found.extend(self.nw.queryRange(range))
-            cells_found.extend(self.ne.queryRange(range))
-            cells_found.extend(self.sw.queryRange(range))
-            cells_found.extend(self.se.queryRange(range))
-
-        return cells_found
-
-
-    # Function to divide the quad tree
-    def divide(self):
-        # Center of the child trees
-        center_x = self.boundary.center.x
-        center_y = self.boundary.center.y
-
-        # Computing the width and height of the child trees
-        new_width = self.boundary.width / 2
-        new_height = self.boundary.height / 2
-
-        # Creating the child trees
-        nw = Rectangle(Point(center_x - new_width, center_y + new_height), new_width, new_height)
-        self.nw = QuadTree(nw)
-
-        ne = Rectangle(Point(center_x + new_width, center_y + new_height), new_width, new_height)
-        self.ne = QuadTree(ne)
-
-        sw = Rectangle(Point(center_x - new_width, center_y - new_height), new_width, new_height)
-        self.sw = QuadTree(sw)
-
-        se = Rectangle(Point(center_x + new_width, center_y - new_height), new_width, new_height)
-        self.se = QuadTree(se)
-
-        # Flagging the current tree as divided
-        self.divided = True
-
-
-    # Overloading of the len() function
-    def __len__(self):
-        # Initilalizing the counter to the cells of the current quad tree
-        count = len(self.cells)
-
-        # Adding to the counter the cumber of cells belonging to the child trees
-        if self.divided:
-            count += len(self.nw) + len(self.ne) + len(self.sw) + len(self.se)
-
-        return count
-
-
-    # Function to plot the quad tree and its childs
-    def draw(self, ax):
-        self.boundary.draw(ax)
-
-        if self.divided:
-            self.nw.draw(ax)
-            self.ne.draw(ax)
-            self.sw.draw(ax)
-            self.se.draw(ax)
 
 
 # Cell class
@@ -484,91 +410,120 @@ class Cell(Polygon):
 # Sensor class
 class Sensor(Rectangle):
     # Class constructor
-    def __init__(self, length, r=None, theta=None):
-        # Extracting the radius and the angle of the sensor w.r.t. the origin
-        self.r = np.random.uniform(np.min(sensor_distance_range), np.max(sensor_distance_range)) if r is None else r # Distance of the sensor
-        self.theta = np.pi * np.random.uniform(np.min(sensor_angle_range), np.max(sensor_angle_range)) if theta is None else theta # Angle of the sensor
+    def __init__(self, origin, normal_vector, width, height, mesh):
+        self.origin = origin
+        self.normal_vector = normal_vector
 
-        # Computing the coordinates of the center of the sensor
-        x = self.r * np.cos(self.theta)
-        y = self.r * np.sin(self.theta)
+        # Extracting the section of interest
+        self.mesh = cut(mesh, (origin.x, origin.y, origin.z), normal_vector)
 
-        # Initializing the parent class
-        super().__init__(Point(x, y), length / 2, length / 2)
+        if normal_vector == (0, 0, 1):
+            self.west = origin.x - width / 2 # West coordinate
+            self.east = origin.x + width / 2 # East coordinate
+            self.north = origin.y + height / 2 # North coordinate
+            self.south = origin.y - height / 2 # South coordinate
 
-        # List of the cells belonging to the sensor 
-        self.cells = []
+            # Clipping the space to extract the sensor according to its dimensions and position
+            self.mesh = clip(self.mesh, (self.west, 0, 0), (1, 0, 0))
+            self.mesh = clip(self.mesh, (self.east, 0, 0), (-1, 0, 0))
+            self.mesh = clip(self.mesh, (0, self.south, 0), (0, 1, 0))
+            self.mesh = clip(self.mesh, (0, self.north, 0), (0, -1, 0))
 
-        # Signal of the flow fields
-        self.signal = {}
+            coordinates_mask = [True, True, False]
+            self.cells = extractCells(self.mesh, coordinates_mask, transpose=False) if self.mesh.GetNumberOfCells() > 0 else []
 
-    
+            # Initializing the parent class
+            super().__init__(Point(origin.x, origin.y), width, height)
+        
+        if normal_vector == (1, 0, 0):
+            self.west = origin.z - width / 2 # West coordinate
+            self.east = origin.z + width / 2 # East coordinate
+            self.north = origin.y + height / 2 # North coordinate
+            self.south = origin.y - height / 2 # South coordinate
+
+            # Clipping the space to extract the sensor according to its dimensions and position
+            self.mesh = clip(self.mesh, (0, 0, self.west), (0, 0, 1))
+            self.mesh = clip(self.mesh, (0, 0, self.east), (0, 0, -1))
+            self.mesh = clip(self.mesh, (0, self.south, 0), (0, 1, 0))
+            self.mesh = clip(self.mesh, (0, self.north, 0), (0, -1, 0))
+
+            coordinates_mask = [False, True, True]
+            self.cells = extractCells(self.mesh, coordinates_mask, transpose=True) if self.mesh.GetNumberOfCells() > 0 else []
+        
+            # Initializing the parent class
+            super().__init__(Point(origin.z, origin.y), width, height)
+            
+
     # Function to generate the signal of the flow fields for the sensor
-    def generateSignal(self, bins_count):
+    def generateSignal(self, resolution):
         # Binning operation
-        bins = self.__surfaceBinning(bins_count)
+        self.__1D_binning(resolution)
+        #self.__2D_binning(resolution)
+        #self.__centroidBinning(resolution)
 
-        # Upsampling the signal in order to obtain the values of the empty bins
-        bins = self.__upsample(bins)
-
-        self.signal = {
-            "p": np.array([bin["p"] for bin in bins]), 
-            "U": np.array([bin["U"] for bin in bins]),
-        }
+        self.signal = self.__denoise(self.signal)
 
         return self.signal
 
 
     # Function to plot the signal of the specified flow field
-    def displaySignal(self, field_name):
-        data = self.signal[field_name]
-        plt.plot(data)
+    def displaySignal(self, signal, field_name):
+        data = signal[field_name]
+
+        if data.ndim == 1:
+            plt.plot(data)
+        else:
+            plt.imshow(data, cmap="gray")
+            plt.grid(False)
+
         plt.show()
 
 
     # Function to plot the sensor and its cells
     def displaySensor(self):
         # Plotting the sensor's cells
-        plt.figure(figsize=(700/72, 500/72), dpi=72)
         ax = plt.subplot()
-        ax.set_xlim(self.west-10, self.east+10)
-        ax.set_ylim(self.south-10, self.north+10)
-        self.draw(ax)
+        ax.set_xlim(self.west-2, self.east+2)
+        ax.set_ylim(self.south-2, self.north+2)
+        self.draw(ax, c='r')
         for cell in self.cells:
             cell.draw(ax)
-        plt.tight_layout()
         plt.show()
 
     
     # Function to perform the binning operation by averaging the values of the cells fully belonging and
     # intersecting each bin.
-    def __surfaceBinning(self, bins_count):
+    def __1D_binning(self, r):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.south, self.north, num=bins_count+1)
+        bins_bounds = np.linspace(self.south, self.north, num=r+1)
 
         # Sorting the cells according to their maximum Y coordinate: to speed up the algorithm
         self.cells = sorted(self.cells, key=lambda cell: np.min([vertex.y for vertex in cell.vertices]))   
 
-        bins = []
+        self.signal = {
+            "p": np.zeros(r),
+            "U": np.zeros(r)
+        }
+
         # Iterating over the bins
-        for idx in range(len(bins_bounds) - 1):
+        for idx in range(r):
             # Extracting the minimum and maximum y coordinate of the bin
-            bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
-            bin__max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
+            south = np.min([bins_bounds[idx], bins_bounds[idx+1]])
+            north = np.max([bins_bounds[idx], bins_bounds[idx+1]])
 
             # Creating a polygon object whose vertices are the ones of the bin
             bin = Polygon([
-                Point(self.west, bin__min_y),
-                Point(self.west, bin__max_y),
-                Point(self.east, bin__max_y),
-                Point(self.east, bin__min_y)
+                Point(self.west, south),
+                Point(self.west, north),
+                Point(self.east, north),
+                Point(self.east, south)
             ])
 
             bin_cells = []
             # Iterating over the cells of the sensor
             for cell in self.cells:
                 # Stopping the execution if the cells are above the upper bound
-                if np.min([vertex.y for vertex in cell.vertices]) > bin__max_y:
+                if np.min([vertex.y for vertex in cell.vertices]) > north:
                     break
 
                 # Extracting the cells that fully belongs to the polygon
@@ -586,7 +541,53 @@ class Sensor(Rectangle):
                 if intersection_polygon is not None:
                     bin_cells.append(Cell(intersection_polygon.vertices, cell.p, cell.U))
             
-            if len(bin_cells) > 0:
+            # Extracting the flow quantities of the cells belonging to the current bin
+            cells_p = np.array([cell.p for cell in bin_cells])
+            cells_U = np.array([cell.U for cell in bin_cells])
+
+            # Extracting the surfaces of the cells belonging to the current bin
+            cells_areas = np.array([cell.area for cell in bin_cells])
+
+            # Computing the sum of the cells belonging to current bin
+            sum_areas = np.sum(cells_areas)
+
+            # Computing the average of the flow quantities of the cells belonging to the current bin
+            self.signal["p"][idx] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
+            self.signal["U"][idx] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
+
+
+    def __2D_binning(self, r):
+        self.signal = {
+            "p": np.zeros((r, r)),
+            "U": np.zeros((r, r)),
+        }
+
+        for i in range(r):
+            for j in range(r):
+                bin = Polygon([
+                    Point((self.west + i*(self.width/r)), (self.south + j*(self.height/r))),
+                    Point((self.west + i*(self.width/r)), (self.south + (j+1)*(self.height/r))),
+                    Point((self.west + (i+1)*(self.width/r)), (self.south + (j+1)*(self.height/r))),
+                    Point((self.west + (i+1)*(self.width/r)), (self.south + j*(self.height/r))),
+                ])
+
+                bin_cells = []
+                for cell in self.cells:
+                    # Extracting the cells that fully belongs to the polygon
+                    fully_belongs = True
+                    for vertex in cell.vertices:
+                        if not bin.containsPoint(vertex):
+                            fully_belongs = False
+
+                    if fully_belongs:
+                        bin_cells.append(cell)
+                        continue
+
+                    # Extracting the cells that partially belong to the current bin
+                    intersection_polygon = bin.intersectionPolygon(cell)
+                    if intersection_polygon is not None:
+                        bin_cells.append(Cell(intersection_polygon.vertices, cell.p, cell.U))
+
                 # Extracting the flow quantities of the cells belonging to the current bin
                 cells_p = np.array([cell.p for cell in bin_cells])
                 cells_U = np.array([cell.U for cell in bin_cells])
@@ -598,49 +599,44 @@ class Sensor(Rectangle):
                 sum_areas = np.sum(cells_areas)
 
                 # Computing the average of the flow quantities of the cells belonging to the current bin
-                bin_p = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
-                bin_U = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
-
-            else:
-                bin_p = None
-                bin_U = None
-
-            bins.append({"p": bin_p, "U": bin_U})
-
-        return bins
+                self.signal["p"][i,j] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
+                self.signal["U"][i,j] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
 
 
     # Function to perform the binning operation by averaging the values of the cells whose centroid belongs
     # to the i-t bin.
-    def __centroidBinning(self, bins_count):
+    def __centroidBinning(self, r):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.south, self.north, num=bins_count+1)
+        bins_bounds = np.linspace(self.south, self.north, num=r+1)
 
-        bins = []
+        self.signal = {
+            "p": np.zeros(r),
+            "U": np.zeros(r)
+        }
+
         # Iterating over the bins
-        for idx in range(len(bins_bounds) - 1):
+        for idx in range(r):
             # Extracting the minimum and maximum y coordinate of the bin
-            bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
-            bin_max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
+            south = np.min([bins_bounds[idx], bins_bounds[idx+1]])
+            north = np.max([bins_bounds[idx], bins_bounds[idx+1]])
 
             # Creating a polygon object whose vertices are the ones of the bin
             bin = Polygon([
-                Point(self.west, bin__min_y),
-                Point(self.west, bin_max_y),
-                Point(self.east, bin_max_y),
-                Point(self.east, bin__min_y)
+                Point(self.west, south),
+                Point(self.west, north),
+                Point(self.east, north),
+                Point(self.east, south)
             ])
 
             # Extracting the cells belonging to the current bin
             bin_cells = [cell for cell in self.cells if bin.containsPoint(cell.centroid)]
 
             # Computing the pressure and velocity field associated to the i-th bin
-            bin_p = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
-            bin_U = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
-
-            bins.append({"p": bin_p, "U": bin_U})
-
-        return bins
+            self.signal["p"][idx] = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
+            self.signal["U"][idx] = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
+        
+        self.signal["p"] = self.__upsample(self.signal["p"])
+        self.signal["U"] = self.__upsample(self.signal["p"])
 
 
     @staticmethod
@@ -648,48 +644,74 @@ class Sensor(Rectangle):
     # values of the closest one
     def __upsample(bins):
         # Setting the values of the first and last bin to the closest ones, if thay are empty.
-        if(bins[0]["p"] is None or bins[0]["U"] is None):
+        if bins[0] is None:
             i, upper_bin = 0, None
             while(upper_bin is None and i < len(bins)):
-                if(bins[i]["p"] is not None and bins[i]["U"] is not None):
+                if bins[i] is not None:
                     upper_bin = bins[i]
                 i += 1
 
-            bins[0]["p"] = float(upper_bin["p"])
-            bins[0]["U"] = float(upper_bin["U"])
+            bins[0] = float(upper_bin) if upper_bin is not None else 0.0
 
-        if(bins[-1]["p"] is None or bins[-1]["U"] is None):
+        if bins[-1] is None:
             i, lower_bin = len(bins) - 1, None
             while(lower_bin is None and i > 0):
-                if(bins[i]["p"] is not None and bins[i]["U"] is not None):
+                if bins[i] is not None:
                     lower_bin = bins[i]
                 i -= 1
 
-            bins[-1]["p"] = float(lower_bin["p"])
-            bins[-1]["U"] = float(lower_bin["U"])   
+            bins[-1] = float(lower_bin) if lower_bin is not None else 0.0
 
         # For each empty bin, obtains its values by interpolating the values of the adjacent ones.
         for i in range(1, len(bins)-1):
-            if(bins[i]["p"] is None or bins[i]["U"] is None):
+            if bins[i] is None:
                 j, lower_bin = i, None
                 while(lower_bin is None and j >= 0):
-                    if(bins[j]["p"] is not None and bins[j]["U"] is not None):
+                    if bins[j] is not None:
                         lower_bin = bins[j]
                         lower_weight = 1 / i - j
                     j -= 1
 
                 j, upper_bin = i, None
                 while(upper_bin is None and j < len(bins)):
-                    if(bins[j]["p"] is not None and bins[j]["U"] is not None):
+                    if bins[j] is not None:
                         upper_bin = bins[j]
                         upper_weight = 1 / j - i
                     j += 1
 
+                upper_bin = upper_bin if upper_bin is not None else 0.0
+                lower_bin = lower_bin if lower_bin is not None else 0.0
+
                 # Weighted average of the values of the closest bins
-                bins[i]["p"] = np.average([lower_bin["p"], upper_bin["p"]], weights=[lower_weight, upper_weight])
-                bins[i]["U"] = np.average([lower_bin["U"], upper_bin["U"]], weights=[lower_weight, upper_weight])
+                bins[i] = np.average([lower_bin, upper_bin], weights=[lower_weight, upper_weight])
 
         return bins
+
+
+    @staticmethod
+    def __denoise(sig):
+        fs = 16.0
+        order = 4
+        nyq = 0.5 * fs
+        cutoff = 2 / nyq
+
+        # Get the filter coefficients 
+        b, a = signal.butter(order, cutoff, 'low', analog=False)
+
+        def displayFilter(b, a):
+            w, h = signal.freqs(b, a)
+            plt.semilogx(w, 20 * np.log10(abs(h)))
+            plt.xlabel('Frequency [radians / second]')
+            plt.ylabel('Amplitude [dB]')
+            plt.margins(0, 0.1)
+            plt.grid(which='both', axis='both')
+            plt.axvline(cutoff, color='green')
+            plt.show()
+
+        sig["p"] = signal.filtfilt(b, a, sig["p"])
+        sig["U"] = signal.filtfilt(b, a, sig["U"])
+
+        return sig
 
 
 
@@ -697,56 +719,38 @@ class Sensor(Rectangle):
 # in te space
 def sensorSignal(reader):
     # Extracting the spatial data
-    poly_data = reader.GetOutput()
-
-    # Cutting the space to extract the target section
-    target_section = extractSection(poly_data)
+    mesh = reader.GetOutput()
 
     # Extracting the X and Y boundaries of the space
-    bounds = target_section.GetBounds()
+    bounds = mesh.GetBounds()
     bounds = bounds[:4]
-
-    # Computing the width and the height of the space 
-    width = np.abs(np.max(bounds[:2]) - np.min(bounds[:2]))
-    height = np.abs(np.max(bounds[-2:]) - np.min(bounds[-2:]))
-
-    # Creating the space domain of the QuadTree
-    domain = Rectangle(Point(0, 0), width, height)
-
-    # Creating the QuadTree
-    quad_tree = QuadTree(domain)
-
-    # Extract the cells of the space
-    cells = extractCells(target_section)
-
-    # Inserting the cells into the quad tree
-    for cell in cells:
-        quad_tree.insert(cell)
     
     signals = []
     # Iterating over the number of sensors to extract
     for _ in range(n_sensors):
-        sensor = Sensor(sensor_length)
+        x = np.random.uniform(0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
+        y = np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
 
-        # Extracting the cells belonging to the current sensor
-        sensor.cells = quad_tree.queryRange(sensor)
-   
-        # Plotting the sensor
-        sensor.displaySensor()
+        # Creating the sensor object
+        origin = Point(x, y, 0.5)
+        sensor = Sensor(origin, normal_vector, sensor_width, sensor_height, mesh)
 
         # Generating the signal
-        signal = sensor.generateSignal(bins_count)
+        signal = sensor.generateSignal(resolution)
 
-        # Plotting the signal
-        #sensor.displaySignal("p")
+        # Plotting the mesh of the sensor and the signal
+        sensor.displaySensor()
+        sensor.displaySignal(signal, field_name="p")
 
-        # Adding the data into the main list
-        signal_data = {"p": [], "U": [], "r": None, "theta": None}
-        signal_data["p"] = signal["p"]
-        signal_data["U"] = signal["U"]
-        signal_data["r"] = sensor.r
-        signal_data["theta"] = sensor.theta
+        # Adding the signal into the main list
+        signals.append({
+            "p": signal["p"],
+            "U": signal["U"],
+            "y": sensor.origin.x, 
+            "x": sensor.origin.y
+        })
 
-        signals.append(signal_data)
+        # Printing status
+        print(f'{_+1} / {n_sensors} sensors generated | x: {sensor.origin.x} | y: {sensor.origin.y}')
 
     return signals

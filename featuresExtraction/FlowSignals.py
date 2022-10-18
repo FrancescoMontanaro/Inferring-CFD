@@ -1,16 +1,17 @@
 import vtk
 import numpy as np
+from scipy import signal
 import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy
 
+plt.style.use('seaborn')
 
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
-bins_count = 128 # Numer of bins
-section_x = 2.0 # X coordinates in which the signal is generated
-signal_center = 0.0 # Y coordinate of the center of the signal
-signal_length = 256.0 # Y length of signal
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
+signal_length = 10.0 # Y length of signal
+n_signals = 10000 # Number of signals to extract
+resolution = 100 # Numer of bins
 
 
 '### FUNCTIONS ###'
@@ -341,17 +342,13 @@ class Section:
 
     
     # Function to generate the signal of the flow fields at the current section
-    def generateSignal(self, bins_count):
+    def generateSignal(self, resolution):
         # Binning operation
-        bins = self.__surfaceBinning(bins_count)
+        signal = self.__1D_binning(resolution)
+        #signal = self.__centroidBinning(resolution)
 
-        # Upsampling the signal in order to obtain the values of the empty bins
-        bins = self.__upsample(bins)
-
-        signal = {
-            "p": np.array([bin["p"] for bin in bins]), 
-            "U": np.array([bin["U"] for bin in bins]),
-        }
+        # Denoising the signal with low pass filtering
+        #signal = self.__denoise(signal)
 
         return signal
 
@@ -365,9 +362,9 @@ class Section:
 
     # Function to perform the binning operation by averaging the values of the cells fully belonging and
     # intersecting each bin.
-    def __surfaceBinning(self, bins_count):
+    def __1D_binning(self, r):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.center - self.length / 2, self.center + self.length / 2, num=bins_count+1)
+        bins_bounds = np.linspace(self.center - self.length / 2, self.center + self.length / 2, num=r+1)
 
         # Extracting the minimum and maximum x coordinate of the bins
         x_coords = np.array([[vertex.x for vertex in cell.vertices] for cell in self.cells])
@@ -378,9 +375,13 @@ class Section:
         # Sorting the cells according to their maximum Y coordinate: to speed up the algorithm
         self.cells = sorted(self.cells, key=lambda cell: np.min([vertex.y for vertex in cell.vertices]))
 
-        bins = []
+        bins = {
+            "p": np.zeros(r),
+            "U": np.zeros(r)
+        }
+
         # Iterating over the bins
-        for idx in range(len(bins_bounds) - 1):
+        for idx in range(r):
             # Extracting the minimum and maximum y coordinate of the bin
             bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
             bin__max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
@@ -414,36 +415,29 @@ class Section:
                 intersection_polygon = bin.intersectionPolygon(cell)
                 if intersection_polygon is not None:
                     bin_cells.append(Cell(intersection_polygon.vertices, cell.p, cell.U))
-            
-            if len(bin_cells) > 0:
-                # Extracting the flow quantities of the cells belonging to the current bin
-                cells_p = np.array([cell.p for cell in bin_cells])
-                cells_U = np.array([cell.U for cell in bin_cells])
+                    
+            # Extracting the flow quantities of the cells belonging to the current bin
+            cells_p = np.array([cell.p for cell in bin_cells])
+            cells_U = np.array([cell.U for cell in bin_cells])
 
-                # Extracting the surfaces of the cells belonging to the current bin
-                cells_areas = np.array([cell.area for cell in bin_cells])
+            # Extracting the surfaces of the cells belonging to the current bin
+            cells_areas = np.array([cell.area for cell in bin_cells])
 
-                # Computing the sum of the cells belonging to current bin
-                sum_areas = np.sum(cells_areas)
+            # Computing the sum of the cells belonging to current bin
+            sum_areas = np.sum(cells_areas)
 
-                # Computing the average of the flow quantities of the cells belonging to the current bin
-                bin_p = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
-                bin_U = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
-
-            else:
-                bin_p = None
-                bin_U = None
-
-            bins.append({"p": bin_p, "U": bin_U})
+            # Computing the average of the flow quantities of the cells belonging to the current bin
+            bins["p"][idx] = np.sum(cells_areas * cells_p) / sum_areas if sum_areas > 0.0 else 0.0
+            bins["U"][idx] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
 
         return bins
 
 
     # Function to perform the binning operation by averaging the values of the cells whose centroid belongs
     # to the i-t bin.
-    def __centroidBinning(self, bins_count):
+    def __centroidBinning(self, r):
         # Computing the bounds of the bins
-        bins_bounds = np.linspace(self.center - self.length / 2, self.center + self.length / 2, num=bins_count+1)
+        bins_bounds = np.linspace(self.center - self.length / 2, self.center + self.length / 2, num=r+1)
 
         # Extracting the minimum and maximum x coordinate of the bins
         x_coords = np.array([[vertex.x for vertex in cell.vertices] for cell in self.cells])
@@ -451,9 +445,13 @@ class Section:
 
         bin__min_x, bin__max_x = np.min(x_coords), np.max(x_coords)
 
-        bins = []
+        bins = {
+            "p": np.zeros(r),
+            "U": np.zeros(r)
+        }
+        
         # Iterating over the bins
-        for idx in range(len(bins_bounds) - 1):
+        for idx in range(r):
             # Extracting the minimum and maximum y coordinate of the bin
             bin__min_y = np.min([bins_bounds[idx], bins_bounds[idx+1]])
             bin_max_y = np.max([bins_bounds[idx], bins_bounds[idx+1]])
@@ -470,12 +468,25 @@ class Section:
             bin_cells = [cell for cell in self.cells if bin.containsPoint(cell.centroid)]
 
             # Computing the pressure and velocity field associated to the i-th bin
-            bin_p = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
-            bin_U = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
+            bins["p"][idx] = float(np.mean([cell.p for cell in bin_cells])) if len(bin_cells) > 0 else None
+            bins["U"][idx] = float(np.mean([cell.U for cell in bin_cells])) if len(bin_cells) > 0 else None
 
-            bins.append({"p": bin_p, "U": bin_U})
+        bins["p"] = self.__upsample(bins["p"])
+        bins["U"] = self.__upsample(bins["p"])
 
         return bins
+
+
+    # Function to plot the sensor and its cells
+    def displaySection(self):
+        # Plotting the sensor's cells
+        plt.figure(figsize=(700/72, 500/72), dpi=72)
+        ax = plt.subplot()
+        ax.set_xlim(-0.5, 1.5)
+        ax.set_ylim((self.center - self.length / 2) - 10, (self.center + self.length / 2) + 10)
+        for cell in self.cells:
+            cell.draw(ax)
+        plt.show()
     
 
     @staticmethod
@@ -483,48 +494,71 @@ class Section:
     # values of the closest one
     def __upsample(bins):
         # Setting the values of the first and last bin to the closest ones, if thay are empty.
-        if(bins[0]["p"] is None or bins[0]["U"] is None):
+        if bins[0] is None:
             i, upper_bin = 0, None
             while(upper_bin is None and i < len(bins)):
-                if(bins[i]["p"] is not None and bins[i]["U"] is not None):
+                if bins[i] is not None:
                     upper_bin = bins[i]
                 i += 1
 
-            bins[0]["p"] = float(upper_bin["p"])
-            bins[0]["U"] = float(upper_bin["U"])
+            bins[0] = float(upper_bin)
 
-        if(bins[-1]["p"] is None or bins[-1]["U"] is None):
+        if bins[-1] is None:
             i, lower_bin = len(bins) - 1, None
             while(lower_bin is None and i > 0):
-                if(bins[i]["p"] is not None and bins[i]["U"] is not None):
+                if bins[i] is not None:
                     lower_bin = bins[i]
                 i -= 1
 
-            bins[-1]["p"] = float(lower_bin["p"])
-            bins[-1]["U"] = float(lower_bin["U"])   
+            bins[-1] = float(lower_bin)
 
         # For each empty bin, obtains its values by interpolating the values of the adjacent ones.
         for i in range(1, len(bins)-1):
-            if(bins[i]["p"] is None or bins[i]["U"] is None):
+            if bins[i] is None:
                 j, lower_bin = i, None
                 while(lower_bin is None and j >= 0):
-                    if(bins[j]["p"] is not None and bins[j]["U"] is not None):
+                    if bins[j] is not None:
                         lower_bin = bins[j]
                         lower_weight = 1 / i - j
                     j -= 1
 
                 j, upper_bin = i, None
                 while(upper_bin is None and j < len(bins)):
-                    if(bins[j]["p"] is not None and bins[j]["U"] is not None):
+                    if bins[j] is not None:
                         upper_bin = bins[j]
                         upper_weight = 1 / j - i
                     j += 1
 
                 # Weighted average of the values of the closest bins
-                bins[i]["p"] = np.average([lower_bin["p"], upper_bin["p"]], weights=[lower_weight, upper_weight])
-                bins[i]["U"] = np.average([lower_bin["U"], upper_bin["U"]], weights=[lower_weight, upper_weight])
+                bins[i] = np.average([lower_bin, upper_bin], weights=[lower_weight, upper_weight])
 
         return bins
+
+
+    @staticmethod
+    def __denoise(sig):
+        fs = 16.0
+        order = 4
+        nyq = 0.5 * fs
+        cutoff = 2 / nyq
+
+        # Get the filter coefficients 
+        b, a = signal.butter(order, cutoff, 'low', analog=False)
+
+        def displayFilter(b, a):
+            w, h = signal.freqs(b, a)
+            plt.semilogx(w, 20 * np.log10(abs(h)))
+            plt.xlabel('Frequency [radians / second]')
+            plt.ylabel('Amplitude [dB]')
+            plt.margins(0, 0.1)
+            plt.grid(which='both', axis='both')
+            plt.axvline(cutoff, color='green')
+            plt.show()
+
+        sig["p"] = signal.filtfilt(b, a, sig["p"])
+        sig["U"] = signal.filtfilt(b, a, sig["U"])
+
+        return sig
 
 
     @staticmethod
@@ -544,22 +578,38 @@ def flowSignals(reader):
     # Extracting the data of the grid
     poly_data = reader.GetOutput()
 
-    # Extracting the section of interest
-    target_section = extractSection(poly_data, section_x)
+    bounds = poly_data.GetBounds()
 
-    # Extracting the cells and the values of the flow quantities associated
-    cells = extractCells(target_section)
+    signals = []
+    for _ in range(n_signals):
+        x =  np.random.uniform(0.0, bounds[1])
+        y = np.random.uniform((bounds[2] + (signal_length / 2)), (bounds[3] - (signal_length / 2)))
 
-    # Creating the section object
-    section = Section(cells, signal_center, signal_length)
+        # Extracting the section of interest
+        target_section = extractSection(poly_data, x)
 
-    # Computing the signal a the specified section
-    signal = section.generateSignal(bins_count)
+        # Extracting the cells and the values of the flow quantities associated
+        cells = extractCells(target_section)
 
-    # Plotting the signal
-    #section.displaySignal(signal, "p")
+        # Creating the section object
+        section = Section(cells, y, signal_length)
 
-    return [{
-        "p": signal["p"],
-        "U": signal["U"]
-    }]
+        #section.displaySection()
+
+        # Computing the signal a the specified section
+        signal = section.generateSignal(resolution)
+
+        # Plotting the signal
+        #section.displaySignal(signal, "p")
+
+        # Adding the data into the main list
+        signals.append({
+            "p": signal["p"],
+            "U": signal["U"],
+            "x": x,
+            "y": y
+        })
+
+        print(f'{_+1} / {n_signals} signals generated | x: {x} | y: {y}')
+
+    return signals

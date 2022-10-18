@@ -5,13 +5,16 @@ from RegionalAverages import regionalAverages
 
 
 # Gloabl Variables
-save_data = True # Flag to save the data extracted to a local file
+num_vtk_files = 1 # Number of vtk files to process (-1 for all of them)
+save_data = False # Flag to save the data extracted to a local file
 file_name = None # Name of the file in which to save the data
-data_path = "/Volumes/T5/files/" # Dataset path
-featresExtractor = flowSignals # Features to extract
+#data_path = "/Volumes/T5/files/" # Dataset path
+data_path = "./VTK_files/0005" # Dataset path
+featresExtractor = sensorSignal # Features to extract
 
 # Extracting the vtk files
 data_files = Utilities.getDataFiles(data_path)
+data_files = data_files[:num_vtk_files]
 
 # Iterating over the vtk files
 data = {"naca_numbers": []}
@@ -45,4 +48,4 @@ for data_file in data_files:
 
 # Saving the result into the destination file
 if save_data:
-    Utilities.saveData(data, file_name)
+    Utilities.saveData(data, file_name=file_name)
