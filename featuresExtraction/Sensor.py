@@ -12,12 +12,12 @@ plt.style.use('seaborn')
 
 denoise = False # Flag to denoise or not the signal (Only for 1D signals)
 n_sensors = 100 # Number of sensors to generate
-signal_type = "2D" # Type of the signal (1D or 2D)
-sensor_width = 10.0 # Width of the sensor (in units of c)
-sensor_height = 10.0 # Height of the senor (in units of c)
-normal_vector = (0, 0, 1) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
-vertical_resolution = 20 # Vertical Resolution of the signal (number of bins) 
-horizontal_resolution = 20 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
+signal_type = "1D" # Type of the signal (1D or 2D)
+sensor_width = 1.0 # Width of the sensor (in units of c)
+sensor_height = 256.0 # Height of the senor (in units of c)
+normal_vector = (1, 0, 0) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
+vertical_resolution = 1024 # Vertical Resolution of the signal (number of bins) 
+horizontal_resolution = 10 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
 
@@ -425,8 +425,8 @@ class Signal:
             plt.xlabel("bins")
             plt.ylabel(field_name)
             plt.plot(data)
-        else:
-            plt.imshow(data.T, cmap="gray")
+        elif data.ndim == 2:
+            plt.imshow(np.rot90(data), cmap="gray")
             plt.grid(False)
 
         plt.title(field_name)
@@ -569,13 +569,13 @@ class Sensor(Rectangle):
     def generateSignal(self, resolution, type, denoise):
         # Binning operation
         if type == "1D":
-            self.__1D_binning(resolution[1])
+            self.__1D_slowBinning(resolution[1])
 
             if denoise:
                 self.signal.denoise()
 
         elif type == "2D":
-            self.__2D_binning(*resolution)
+            self.__2D_slowBinning(*resolution)
 
         return self.signal
 
@@ -594,7 +594,7 @@ class Sensor(Rectangle):
     
     # Function to perform the binning operation by averaging the values of the cells fully belonging and
     # intersecting each bin.
-    def __1D_binning(self, r):
+    def __1D_slowBinning(self, r):
         # Computing the bounds of the bins
         bins_bounds = np.linspace(self.south, self.north, num=r+1)
 
@@ -657,7 +657,7 @@ class Sensor(Rectangle):
             self.signal.U[idx] = np.sum(cells_areas * cells_U) / sum_areas if sum_areas > 0.0 else 0.0
 
 
-    def __2D_binning(self, rh, rv):
+    def __2D_slowBinning(self, rh, rv):
         self.signal = Signal(
             p = np.zeros((rh, rv)),
             U = np.zeros((rh, rv))
@@ -753,14 +753,15 @@ def sensorSignal(reader):
     # Extracting the X and Y boundaries of the space
     bounds = mesh.GetBounds()
     bounds = bounds[:4]
-
-
     
     signals = []
     # Iterating over the number of sensors to extract
     for _ in range(n_sensors):
         x = np.random.uniform(10.0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
         y = np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
+
+        x = 2.0
+        y = 0.0
         
         # Creating the sensor object
         origin = Point(x, y, 0.5)
@@ -770,8 +771,8 @@ def sensorSignal(reader):
         sensor.generateSignal(resolution=(horizontal_resolution, vertical_resolution), type=signal_type, denoise=denoise)
 
         # Plotting the mesh of the sensor and the signal
-        #sensor.display()
-        #sensor.signal.display(field_name="p")
+        sensor.display()
+        sensor.signal.display(field_name="p")
 
         # Adding the signal into the main list
         signals.append({
@@ -782,6 +783,7 @@ def sensorSignal(reader):
         })
 
         # Printing status
-        print(f'{_+1} / {n_sensors} sensors generated | x: {sensor.origin.x} | y: {sensor.origin.y}')
+        if n_sensors > 1:
+            print(f'{_+1} / {n_sensors} sensors generated | x: {sensor.origin.x} | y: {sensor.origin.y}')
 
     return signals
