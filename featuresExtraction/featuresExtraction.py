@@ -14,7 +14,7 @@ featresExtractor = sensorSignal # Features to extract
 
 # Extracting the vtk files
 data_files = Utilities.getDataFiles(data_path)
-data_files = data_files[:num_vtk_files]
+if 0 < num_vtk_files <= len(data_files): data_files = data_files[:num_vtk_files] 
 
 # Iterating over the vtk files
 data = {"naca_numbers": []}
