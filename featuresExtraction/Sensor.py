@@ -16,6 +16,7 @@ signal_type = "1D" # Type of the signal (1D or 2D)
 sensor_width = 1.0 # Width of the sensor (in units of c)
 sensor_height = 256.0 # Height of the senor (in units of c)
 normal_vector = (1, 0, 0) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
+sensor_origin = (2.0, 0.0) # x, y origin of the sensor | (None, None) for random position (x > 0).
 vertical_resolution = 1024 # Vertical Resolution of the signal (number of bins) 
 horizontal_resolution = 10 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
@@ -757,11 +758,8 @@ def sensorSignal(reader):
     signals = []
     # Iterating over the number of sensors to extract
     for _ in range(n_sensors):
-        x = np.random.uniform(10.0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
-        y = np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
-
-        x = 2.0
-        y = 0.0
+        x = sensor_origin[0] if sensor_origin[0] is not None else np.random.uniform(0.0 + np.sqrt(sensor_width), np.max(bounds[:2]) - np.sqrt(sensor_width))
+        y = sensor_origin[1] if sensor_origin[1] is not None else np.random.uniform(np.min(bounds[-2:]) + np.sqrt(sensor_height), np.max(bounds[-2:]) - np.sqrt(sensor_height))
         
         # Creating the sensor object
         origin = Point(x, y, 0.5)
