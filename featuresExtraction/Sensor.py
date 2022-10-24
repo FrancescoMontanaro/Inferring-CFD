@@ -12,13 +12,11 @@ plt.style.use('seaborn')
 
 denoise = False # Flag to denoise or not the signal (Only for 1D signals)
 n_sensors = 100 # Number of sensors to generate
-signal_type = "1D" # Type of the signal (1D or 2D)
+resolution = 1024 # Resolution of the signal: Scalar for 1D signal, tuple (rx, ry) for 2D signals
 sensor_width = 1.0 # Width of the sensor (in units of c)
 sensor_height = 256.0 # Height of the senor (in units of c)
 normal_vector = (1, 0, 0) # Vector normal to the sensor: (1, 0, 0): Orthogonal to the flow | (0, 0, 1): Parallel to the flow
 sensor_origin = (2.0, 0.0) # x, y origin of the sensor | (None, None) for random position (x > 0).
-vertical_resolution = 1024 # Vertical Resolution of the signal (number of bins) 
-horizontal_resolution = 10 # Horizontal Resolution of the signal (number of bins) | Used only for 2D signals
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
 
@@ -569,14 +567,14 @@ class Sensor(Rectangle):
     # Function to generate the signal of the flow fields for the sensor
     def generateSignal(self, resolution, type, denoise):
         # Binning operation
-        if type == "1D":
-            self.__1D_slowBinning(resolution[1])
+        if type(resolution) is tuple:
+            self.__2D_slowBinning(*resolution)
+
+        else:
+            self.__1D_slowBinning(resolution)
 
             if denoise:
                 self.signal.denoise()
-
-        elif type == "2D":
-            self.__2D_slowBinning(*resolution)
 
         return self.signal
 
@@ -766,7 +764,7 @@ def sensorSignal(reader):
         sensor = Sensor(origin, normal_vector, sensor_width, sensor_height, mesh)
 
         # Generating the signal
-        sensor.generateSignal(resolution=(horizontal_resolution, vertical_resolution), type=signal_type, denoise=denoise)
+        sensor.generateSignal(resolution=resolution, denoise=denoise)
 
         # Plotting the mesh of the sensor and the signal
         sensor.display()
