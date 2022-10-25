@@ -10,10 +10,10 @@ plt.style.use('seaborn')
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
 bins_count = 64 # Numer of bins
-sections_length = 5.0 # Y length of the cutting sections
+sections_length = 10.0 # Y length of the cutting sections
 sections_distance = 3.0 # X distance of the cutting sections from the origin
 maximum_propagation = 30.0 # Maximum streamlines length
-streamlines_resolution = 300 # Number of streamlines
+streamlines_resolution = 350 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
