@@ -1,6 +1,7 @@
 import Utilities
 from Sensor import sensorSignal
 from FlowSignals import flowSignals
+from ArrivalTimes import arrivalTimes
 from RegionalAverages import regionalAverages
 
 

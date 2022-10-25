@@ -3,6 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from vtk.util.numpy_support import vtk_to_numpy
 
+plt.style.use('seaborn')
+
 
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 

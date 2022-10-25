@@ -1,17 +1,24 @@
 import vtk
 import numpy as np
+import matplotlib.pyplot as plt
+import scipy
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
+plt.style.use('seaborn')
 
-# Global variables and constants
+
+'### GLOBAL VARIABLES AND CONSTANTS ###'
+
 bins_count = 64 # Numer of bins
-sections_length = 10.0 # Y length of the cutting sections
+sections_length = 5.0 # Y length of the cutting sections
 sections_distance = 3.0 # X distance of the cutting sections from the origin
 maximum_propagation = 30.0 # Maximum streamlines length
-streamlines_resolution = 350 # Number of streamlines
+streamlines_resolution = 300 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
+
+'### FUNCTIONS ###'
 
 """
 Given a VTK objects, extracts the points belonging to a specific cell
@@ -115,7 +122,7 @@ def __extractArrivalTimes(reader):
     # Extracting the number of streamlines
     num_streamlines = streamer_output.GetNumberOfCells()
 
-    arrival_times = []
+    arrival_times = np.array([])
     for cell in range(num_streamlines):
         # Extracting the ids of the points of the streamline
         ids = __getPointsIds(streamer_output, cell)
@@ -186,73 +193,30 @@ def __extractArrivalTimes(reader):
                 # Computing the arrival time of the current streamline
                 arrival_time = lower_time_distance + np.sum(region_time_distances[1:]) + upper_time_distance
 
-                arrival_times.append({"arrival_time": arrival_time, "y_min": region_points[0,1]})
+                arrival_times = np.append(arrival_times, arrival_time)
 
     return arrival_times
 
 
 """
-Given the streamlines with their velocity value and the number of bins, 
-performs the binning operation to generate a 1D signal.
+Function to compute the n-th centered moment of an array
 """
-def __extractBins(arrival_times, bins_count):
-    # Extracting the boundaries of the bins
-    bins_bounds = np.linspace(-sections_length/2, +sections_length/2, num=bins_count)
+def __nthMoment(data, n):
+    n_moment = np.sum((data - np.mean(data)) ** n) / len(data)
+    return n_moment
 
-    # Creating an array of empty bins
-    bins = np.full(bins_count, None)
 
-    # Iterating over the total number of bins
-    for idx in range(len(bins_bounds) - 1):
-        # Extracting the arrival times of the streamlines belonging to the i-th bin
-        bin__arrival_times = [arrival_time["arrival_time"] for arrival_time in arrival_times if arrival_time["y_min"] >= bins_bounds[idx] and arrival_time["y_min"] < bins_bounds[idx+1]]
+"""
+Given the arrival times, computes their distribution statistics.
+"""
+def __extractStatistics(arrival_times):
+    mean = np.mean(arrival_times)
+    second_order_moment = __nthMoment(arrival_times, 2)
+    third_order_moment = __nthMoment(arrival_times, 3)
+    fourth_order_moment = __nthMoment(arrival_times, 4)
+    fifth_order_moment = __nthMoment(arrival_times, 5)
 
-        # Computing the average arrival time of the streamlines belonging to the i-th bin
-        bin__arrival_time = float(np.mean([bin__arrival_time for bin__arrival_time in bin__arrival_times])) if len(bin__arrival_times) > 0 else None
-
-        # Assigning the arrival time to the i-th bin
-        bins[idx] = bin__arrival_time
-
-    # Obtaining the values of the empty bins by interpolating the values of the adjacent ones
-    if(bins[0] is None):
-        i, upper_bin = 0, None
-        while(upper_bin is None and i < len(bins)):
-            if(bins[i] is not None):
-                upper_bin = bins[i]
-            i += 1
-
-        bins[0] = upper_bin
-
-    if(bins[-1] is None):
-        i, lower_bin = len(bins) - 1, None
-        while(lower_bin is None and i > 0):
-            if(bins[i] is not None):
-                lower_bin = bins[i]
-            i -= 1
-
-        bins[-1] = lower_bin
-
-    for i in range(1, len(bins)-1):
-        if(bins[i] is None):
-            j, lower_bin = i, None
-            while(lower_bin is None and j >= 0):
-                if(bins[j] is not None):
-                    lower_bin = bins[j]
-                    lower_weight = 1 / i - j
-                j -= 1
-
-            j, upper_bin = i, None
-            while(upper_bin is None and j < len(bins)):
-                if(bins[j] is not None ):
-                    upper_bin = bins[j]
-                    upper_weight = 1 / j - i
-                j += 1
-
-            bins[i] = np.average([lower_bin, upper_bin], weights=[lower_weight, upper_weight])
-
-    bins = {"arrival_times": list(bins)}
-
-    return bins
+    return mean, second_order_moment, third_order_moment, fourth_order_moment, fifth_order_moment
 
 
 """
@@ -262,7 +226,13 @@ def arrivalTimes(reader):
     # Computing the streamlines' arrival time to the arrival section
     arrival_times = __extractArrivalTimes(reader)
 
-    # Extracting the bins
-    bins = __extractBins(arrival_times, bins_count)
+    # Extracting the distribution statistics of the arrival_times
+    mean, second_order_moment, third_order_moment, fourth_order_moment, fifth_order_moment = __extractStatistics(arrival_times)
 
-    return bins
+    return [{
+        "mean": mean,
+        "second_order_moment": second_order_moment,
+        "third_order_moment": third_order_moment,
+        "fourth_order_moment": fourth_order_moment,
+        "fifth_order_moment": fifth_order_moment
+    }]
