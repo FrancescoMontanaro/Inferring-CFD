@@ -227,12 +227,6 @@ def arrivalTimes(reader):
     arrival_times = __extractArrivalTimes(reader)
 
     # Extracting the distribution statistics of the arrival_times
-    mean, second_order_moment, third_order_moment, fourth_order_moment, fifth_order_moment = __extractStatistics(arrival_times)
+    distribution_statistics = __extractStatistics(arrival_times)
 
-    return [{
-        "mean": mean,
-        "second_order_moment": second_order_moment,
-        "third_order_moment": third_order_moment,
-        "fourth_order_moment": fourth_order_moment,
-        "fifth_order_moment": fifth_order_moment
-    }]
+    return [{"distribution_statistics": list(distribution_statistics)}]
