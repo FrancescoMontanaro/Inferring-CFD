@@ -108,6 +108,7 @@ def saveData(data, file_path=None, file_name=None):
     file_name = f'{datetime.now().strftime("%d_%m_%Y_%H_%M_%S")}.npz' if file_name is None else f'{file_name}.npz'
     
     # Path of the destination file
+    if file_path is None and not os.path.exists('./Dataset'): os.mkdir("Dataset")
     file_path = os.path.join('Dataset', file_name) if file_path is None else os.path.join(file_path, file_name)
 
     # Saving the data
