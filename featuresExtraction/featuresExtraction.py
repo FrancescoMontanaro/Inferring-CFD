@@ -4,13 +4,12 @@ from FlowSignals import flowSignals
 from ArrivalTimes import arrivalTimes
 from RegionalAverages import regionalAverages
 
-
 # Gloabl Variables
-num_vtk_files = 1 # Number of vtk files to process (-1 for all of them)
-save_data = False # Flag to save the data extracted to a local file
+num_vtk_files = -1 # Number of vtk files to process (-1 for all of them)
+save_data = True # Flag to save the data extracted to a local file
 file_name = None # Name of the file in which to save the data
-#data_path = "/Volumes/T5/files/" # Dataset path
-data_path = "./VTK_files/0005" # Dataset path
+data_path = "/Volumes/T5/files/" # Dataset path
+#data_path = "./VTK_files/0005" # Dataset path
 featresExtractor = sensorSignal # Features to extract
 
 # Extracting the vtk files

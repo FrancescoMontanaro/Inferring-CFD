@@ -1,7 +1,7 @@
 import vtk
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy
+from Geometry import Point, Line, Segment, Rectangle
 from vtk.util.numpy_support import vtk_to_numpy, numpy_to_vtk
 
 plt.style.use('seaborn')
@@ -9,11 +9,11 @@ plt.style.use('seaborn')
 
 '### GLOBAL VARIABLES AND CONSTANTS ###'
 
-bins_count = 64 # Numer of bins
 sections_length = 10.0 # Y length of the cutting sections
 sections_distance = 3.0 # X distance of the cutting sections from the origin
+section_origin = Point(0.5, 0.0) # X and Y origin of the cutting plane
 maximum_propagation = 30.0 # Maximum streamlines length
-streamlines_resolution = 350 # Number of streamlines
+streamlines_resolution = 120 # Number of streamlines
 free_stream__gradient = 0.17453 # Gradient of the free stream
 free_stream__velocity_magnitude = 30.0 # Magnitude of the velocity of the free stream
 
@@ -37,26 +37,6 @@ def __getPointsIds(streamer_output, cell):
 
 
 """
-Given a set of points, rotates the points of an angle equal to the
-gradient of the free stream.
-"""
-def __rotatePoints(points):
-    points = np.array(points)
-
-    # Rotation coefficients
-    l_cos = 1 / np.sqrt(1 + free_stream__gradient**2)
-    l_sin = free_stream__gradient * l_cos
-
-    # Rotation matrix
-    l_rot = np.array([[l_cos , -l_sin], [-l_sin, l_cos]])
-    
-    # Rotating the points of the cutting plane according to the gradient of the free stream
-    points = (l_rot @ points.T).T
-
-    return points
-
-
-"""
 Given a vtk reader, the distance of the cutting sections (S and E), the  length of the 
 cutting sections (S and E) the gradiet of the free stream and the chord of the i-th airfoil,
 extracts the streamlines and computes their arrival time from section S to section E.
@@ -65,9 +45,8 @@ def __extractArrivalTimes(reader):
     # Extracting the data of the grid
     poly_data = reader.GetOutput()
 
-    # Computing the boundaries of the cutting plane
-    section__y_bounds = [-sections_length/2, +sections_length/2]
-    section__x_bounds = [-sections_distance, +sections_distance]
+    # Cutting plane
+    cutting_plane = Rectangle(section_origin, 2*sections_distance, sections_length)
 
     # Setting the z component of the velocity field to 0
     U = vtk_to_numpy(poly_data.GetCellData().GetArray("U"))
@@ -107,7 +86,7 @@ def __extractArrivalTimes(reader):
     points = np.delete(points, -1, axis=1)
 
     # Rotating the points of an angle equal to the free stream gradient
-    points = __rotatePoints(points)
+    #points = __rotatePoints(points)
 
     # Extracting the velocity of the points and removing the last column (z coordinate)
     U = vtk_to_numpy(streamer_output.GetPointData().GetArray("Velocity"))
@@ -127,72 +106,47 @@ def __extractArrivalTimes(reader):
         # Extracting the ids of the points of the streamline
         ids = __getPointsIds(streamer_output, cell)
 
-        # Extracting the points of the streamline
-        streamline_points = np.array([points[id] for id in ids])
+        # Extracting the coordinates and the velocity of the points of the streamline
+        streamline_points = [Point(points[id, 0], points[id, 1]) for id in ids]
+        streamline_U = [U[id] for id in ids]
 
-        # Extracting the velocity of the points of the streamline
-        streamline_U = np.array([U[id] for id in ids])
+        # Extracting the indices of the points belonging to the cutting region
+        region_indices = [idx for idx in range(len(streamline_points)) if cutting_plane.containsPoint(streamline_points[idx])]
 
-        # Checking if the streamline belongs to the vertical section of the cutting plane
-        if all(y >= section__y_bounds[0] and y <= section__y_bounds[1] for (_,y) in streamline_points):
-            # Computing the distance of the consecutive points of the streamline
-            dx = streamline_points[1:,0] - streamline_points[:-1,0]
-            dy = streamline_points[1:,1] - streamline_points[:-1,1]
+        region_points = np.array([streamline_points[idx] for idx in region_indices])
+        region_U = np.array([streamline_U[idx] for idx in region_indices])
 
-            # Extracting the length of the segments connecting points
-            segments_length = np.sqrt(dx**2 + dy**2)
+        if len(region_points) > 2:
+            # Computing the points of the streamline lying on the cutting sections
+            streamline = Line(region_points[0], region_points[-1])
 
-            # Computing the velocity of the edges as the mean of the velocity of the points
-            U_edges = (streamline_U[1:] + streamline_U[:-1]) / 2
+            S = Segment(Point(cutting_plane.west, cutting_plane.south), Point(cutting_plane.west, cutting_plane.north))
+            E = Segment(Point(cutting_plane.east, cutting_plane.south), Point(cutting_plane.east, cutting_plane.north))
+            
+            lower_intersection = streamline.SegmentIntersection(S)
+            upper_intersection = streamline.SegmentIntersection(E)
 
-            # Computing the time distance of the consecutive points
-            time_distances = segments_length / U_edges
-            time_distances = np.insert(time_distances, 0, 0.0)
+            # Filtering streamlines not intersecting the starting and arrival section E 
+            if lower_intersection is not None and upper_intersection is not None:
+                # Adding the points of the streamline lying on the section S and E
+                region_points = np.insert(region_points, 0, lower_intersection)
+                region_U = np.insert(region_U, 0, region_U[0])
+                
+                region_points = np.append(region_points, upper_intersection)
+                region_U = np.append(region_U, region_U[-1])
 
-            # Filtering the indices of the points belonging to the horiziontal section of the cutting plane
-            indices = [idx for idx in range(len(streamline_points)) if streamline_points[idx, 0] >= section__x_bounds[0] and streamline_points[idx, 0] <= section__x_bounds[1]]
+                # Computing the time distance of the consecutive points
+                time_distances = np.zeros(len(region_points)-1)
+                for idx in range(len(region_points) - 1):
+                    segment_length = region_points[idx].distance(region_points[idx+1])
+                    U_edge = (region_U[idx] + region_U[idx+1]) / 2
+                    
+                    time_distances[idx] = segment_length / U_edge
 
-            # Extracting the coordinates and the time distances of the points belonging to the cutting section
-            region_points = np.array([streamline_points[idx] for idx in indices])
-            region_time_distances = np.array([time_distances[idx] for idx in indices])
+                # Computing the arrival time of the streamline
+                arrival_time = np.sum(time_distances)
 
-            # Extracting the closest point not belonging to the region of interest
-            lower_idx = indices[0] -1
-            upper_idx = indices[-1] + 1
-
-            if lower_idx >= 0 and upper_idx < len(streamline_points):
-                # Extracting the coordinates of the points lying on the cutting sections (linear interpolation)
-                lower__point_on_section = [
-                    section__x_bounds[0],
-                    region_points[0,1] + (section__x_bounds[0] - region_points[0,0]) * (streamline_points[lower_idx,1] - region_points[0,1]) / (streamline_points[lower_idx,0] - region_points[0,0])
-                ]
-
-                upper__point_on_section = [
-                    section__x_bounds[1],
-                    region_points[-1,1] + (section__x_bounds[1] - region_points[-1,0]) * (streamline_points[upper_idx,1] - region_points[-1,1]) / (streamline_points[upper_idx,0] - region_points[-1,0])
-                ]
-
-                # Computing the distance between the cutting sections and the closest points belonging to it
-                lower__section_distance = np.linalg.norm(lower__point_on_section - region_points[0])
-                upper__section_distance = np.linalg.norm(upper__point_on_section - region_points[-1])
-
-                # Computing the distance between the closest points belonging to the cutting sections and the
-                # closest points not belonging to it
-                lower_point_distance = np.linalg.norm(streamline_points[lower_idx] - region_points[0])
-                upper_point_distance = np.linalg.norm(streamline_points[upper_idx] - region_points[-1])
-
-                # Computing the ratio of the computed values 
-                lower_ratio = lower__section_distance / lower_point_distance
-                upper_ratio = upper__section_distance / upper_point_distance
-
-                # Computing the time distance between the closest points to the cutting sections
-                # and the cutting section itself
-                lower_time_distance = region_time_distances[0] * lower_ratio
-                upper_time_distance = time_distances[upper_idx] * upper_ratio
-
-                # Computing the arrival time of the current streamline
-                arrival_time = lower_time_distance + np.sum(region_time_distances[1:]) + upper_time_distance
-
+                # Adding the obtained value to the main list
                 arrival_times = np.append(arrival_times, arrival_time)
 
     return arrival_times
